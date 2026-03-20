@@ -1,16 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
-# Ubuntu Kickstart
+# Kickstart
 # Author: Dusan Panic <dpanic@gmail.com>
 # https://github.com/dpanic/ubuntu-kickstart
 #
 # Interactive TUI launcher using Charmbracelet's gum
+# Supports Ubuntu (apt) and macOS (brew)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$REPO_DIR/scripts"
 LOG_DIR="$REPO_DIR/logs"
 mkdir -p "$LOG_DIR"
+
+source "$SCRIPTS_DIR/lib.sh"
 
 # ─── Bootstrap gum ───────────────────────────────────────────────────────────
 
@@ -20,13 +23,18 @@ ensure_gum() {
     fi
 
     echo "gum not found -- installing Charmbracelet gum..."
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://repo.charm.sh/apt/gpg.key \
-        | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
-    echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" \
-        | sudo tee /etc/apt/sources.list.d/charm.list >/dev/null
-    sudo apt-get update -qq
-    sudo apt-get install -y gum
+    if is_macos; then
+        ensure_brew
+        brew install gum
+    else
+        sudo mkdir -p /etc/apt/keyrings
+        curl -fsSL https://repo.charm.sh/apt/gpg.key \
+            | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" \
+            | sudo tee /etc/apt/sources.list.d/charm.list >/dev/null
+        sudo apt-get update -qq
+        sudo apt-get install -y gum
+    fi
     echo ""
 }
 
@@ -48,7 +56,7 @@ show_banner() {
     title=$(gum style \
         --foreground "$ACCENT" \
         --bold \
-        "  Ubuntu Kickstart")
+        "  Kickstart")
 
     subtitle=$(gum style \
         --foreground "$ACCENT2" \
@@ -69,45 +77,100 @@ show_banner() {
         "$banner"
 }
 
-# ─── Script registry ─────────────────────────────────────────────────────────
-# Format: "script_filename|display_label"
+# ─── Item registry ───────────────────────────────────────────────────────────
+# Format: "os|script|component|label"
+#   os: "all", "linux", or "macos"
+#   component empty = standalone script
+#   component set   = sub-item of a grouped script
 
-SCRIPTS=(
-    "gnome-optimize.sh|GNOME Optimize -- disable animations, sounds, hot corners"
-    "nautilus-optimize.sh|Nautilus Optimize -- restrict Tracker, limit thumbnails"
-    "apparmor-setup.sh|AppArmor Setup -- learning mode with Slack reminder"
-    "install-shell-tools.sh|Shell Tools -- zsh, oh-my-zsh, fzf, starship, direnv, plugins, nvm, git"
-    "install-terminal-tools.sh|Terminal Tools -- byobu, tmux, duf, ncdu"
-    "install-docker.sh|Docker -- engine, compose, buildx, daemon config"
-    "install-yazi.sh|Yazi -- terminal file manager"
-    "install-neovim.sh|Neovim + LazyVim -- editor with IDE features"
-    "install-peazip.sh|PeaZip -- archive manager (200+ formats)"
+ALL_ITEMS=(
+    "linux|gnome-optimize.sh||GNOME Optimize -- disable animations, sounds, hot corners"
+    "linux|nautilus-optimize.sh||Nautilus Optimize -- restrict Tracker, limit thumbnails"
+    "linux|apparmor-setup.sh||AppArmor Setup -- learning mode with Slack reminder"
+    "all|install-shell-tools.sh|zsh|Shell ▸ zsh + oh-my-zsh"
+    "all|install-shell-tools.sh|fzf|Shell ▸ fzf (fuzzy finder)"
+    "all|install-shell-tools.sh|starship|Shell ▸ starship prompt"
+    "all|install-shell-tools.sh|direnv|Shell ▸ direnv"
+    "all|install-shell-tools.sh|plugins|Shell ▸ zsh plugins (autosuggestions, syntax-highlighting)"
+    "all|install-shell-tools.sh|nvm|Shell ▸ nvm (Node version manager)"
+    "all|install-shell-tools.sh|git|Shell ▸ git config (LFS, SSH-over-HTTPS)"
+    "linux|install-terminal-tools.sh|byobu|Terminal ▸ byobu + tmux"
+    "all|install-terminal-tools.sh|ncdu|Terminal ▸ ncdu (disk analyzer)"
+    "all|install-docker.sh||Docker -- engine, compose, buildx, daemon config"
+    "all|install-yazi.sh||Yazi -- terminal file manager"
+    "all|install-neovim.sh||Neovim + LazyVim -- editor with IDE features"
+    "linux|install-peazip.sh||PeaZip -- archive manager (200+ formats)"
 )
 
-get_labels() {
-    for entry in "${SCRIPTS[@]}"; do
-        echo "${entry#*|}"
-    done
-}
-
-label_to_script() {
-    local label="$1"
-    for entry in "${SCRIPTS[@]}"; do
-        if [[ "${entry#*|}" == "$label" ]]; then
-            echo "${entry%%|*}"
-            return
+build_items() {
+    ITEMS=()
+    for entry in "${ALL_ITEMS[@]}"; do
+        local item_os="${entry%%|*}"
+        local rest="${entry#*|}"
+        if [[ "$item_os" == "all" ]] || [[ "$item_os" == "$OS" ]]; then
+            ITEMS+=("$rest")
         fi
     done
 }
 
-# ─── User profile ─────────────────────────────────────────────────────────────
+build_items
+
+get_labels() {
+    for entry in "${ITEMS[@]}"; do
+        local label="${entry#*|}"
+        echo "${label#*|}"
+    done
+}
+
+# ─── Selection parser ────────────────────────────────────────────────────────
+# Turns selected labels into ordered (script, components) pairs
+
+declare -A SCRIPT_COMPONENTS
+SCRIPT_ORDER=()
+
+parse_selection() {
+    SCRIPT_COMPONENTS=()
+    SCRIPT_ORDER=()
+
+    while IFS= read -r label; do
+        [[ -z "$label" ]] && continue
+
+        for entry in "${ITEMS[@]}"; do
+            local e_label="${entry#*|}"
+            e_label="${e_label#*|}"
+            if [[ "$e_label" == "$label" ]]; then
+                local script="${entry%%|*}"
+                local rest="${entry#*|}"
+                local component="${rest%%|*}"
+
+                if [[ -z "${SCRIPT_COMPONENTS[$script]+_}" ]]; then
+                    SCRIPT_ORDER+=("$script")
+                    SCRIPT_COMPONENTS["$script"]=""
+                fi
+
+                if [[ -n "$component" ]]; then
+                    SCRIPT_COMPONENTS["$script"]+="$component "
+                fi
+                break
+            fi
+        done
+    done
+}
+
+# ─── User profile ────────────────────────────────────────────────────────────
 
 collect_user_info() {
     local needs_info=false
 
-    for label in "$@"; do
-        case "$label" in
-            *Shell\ Tools*|*Docker*|*AppArmor*) needs_info=true ;;
+    for script in "${SCRIPT_ORDER[@]}"; do
+        case "$script" in
+            install-shell-tools.sh|install-docker.sh|apparmor-setup.sh)
+                local comps="${SCRIPT_COMPONENTS[$script]}"
+                if [[ "$script" == "install-shell-tools.sh" && -n "$comps" && "$comps" != *git* ]]; then
+                    continue
+                fi
+                needs_info=true
+                ;;
         esac
     done
 
@@ -115,7 +178,6 @@ collect_user_info() {
         return
     fi
 
-    # Try to pre-fill from existing git config
     local existing_name existing_email
     existing_name=$(git config --global user.name 2>/dev/null || true)
     existing_email=$(git config --global user.email 2>/dev/null || true)
@@ -153,12 +215,9 @@ run_scripts() {
     local failed=0
     local results=()
 
-    while IFS= read -r label; do
-        [[ -z "$label" ]] && continue
-
-        local script
-        script=$(label_to_script "$label")
-        [[ -z "${script:-}" ]] && continue
+    for script in "${SCRIPT_ORDER[@]}"; do
+        local components="${SCRIPT_COMPONENTS[$script]}"
+        components="${components% }"   # trim trailing space
 
         local script_path="$SCRIPTS_DIR/$script"
         [[ ! -x "$script_path" ]] && chmod +x "$script_path"
@@ -167,6 +226,9 @@ run_scripts() {
 
         echo ""
         gum style --foreground "$ACCENT2" --bold "━━━ Running: $script ━━━"
+        if [[ -n "$components" ]]; then
+            gum style --faint "  components: $components"
+        fi
         echo ""
 
         local rc=0
@@ -183,7 +245,8 @@ run_scripts() {
             fi
             sudo bash "$script_path" "$webhook" 2>&1 | tee "$logfile" || rc=${PIPESTATUS[0]}
         else
-            bash "$script_path" 2>&1 | tee "$logfile" || rc=${PIPESTATUS[0]}
+            # shellcheck disable=SC2086
+            bash "$script_path" $components 2>&1 | tee "$logfile" || rc=${PIPESTATUS[0]}
         fi
 
         if [[ $rc -eq 0 ]]; then
@@ -217,21 +280,17 @@ main() {
     clear
     show_banner
 
-    gum style --foreground "$ACCENT2" --faint \
-        "  ┌ System: items 1-3    └ Dev Tools: items 4-9"
-    echo ""
-
     local chosen
     chosen=$(get_labels \
         | gum choose \
             --no-limit \
-            --height 12 \
-            --cursor-prefix "○ " \
-            --selected-prefix "◉ " \
-            --unselected-prefix "○ " \
+            --height 20 \
+            --cursor-prefix "[▸] " \
+            --selected-prefix "[✓] " \
+            --unselected-prefix "[ ] " \
             --cursor.foreground "$ACCENT" \
             --selected.foreground "$ACCENT2" \
-            --header "SPACE = toggle, ENTER = confirm:" \
+            --header "SPACE = toggle  ·  ENTER = confirm" \
             --header.foreground "$ACCENT") || true
 
     if [[ -z "$chosen" ]]; then
@@ -239,14 +298,15 @@ main() {
         exit 0
     fi
 
-    local count
-    count=$(echo "$chosen" | wc -l)
+    parse_selection <<< "$chosen"
 
-    collect_user_info $chosen
+    local count=${#SCRIPT_ORDER[@]}
+
+    collect_user_info
 
     echo ""
-    if gum confirm --prompt.foreground "$ACCENT" "Run $count selected script(s)?"; then
-        echo "$chosen" | run_scripts
+    if gum confirm --prompt.foreground "$ACCENT" "Run $count script(s)?"; then
+        run_scripts
     else
         gum style --foreground "$WARN_COLOR" "  Cancelled."
     fi

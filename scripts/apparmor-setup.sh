@@ -62,7 +62,7 @@ curl -s -X POST "$WEBHOOK_URL" \
 {
   "username": "AppArmor Bot",
   "icon_emoji": ":shield:",
-  "text": ":shield: *AppArmor: __LEARNING_DAYS__-dnevni learning period je zavrsen*\n\n*Host:* \`${HOSTNAME}\`\n*Profila u complain modu:* ${PROFILES_COUNT}\n*Zabelezenih dozvoljenih krsenja:* ${LOG_VIOLATIONS}\n\n---\n\n*Sta se desavalo poslednjih __LEARNING_DAYS__ dana?*\nSvi AppArmor profili su bili u *complain (learning) modu*. To znaci da AppArmor NIJE blokirao nista, ali je BELEZIO svako ponasanje aplikacija koje bi inace bilo blokirano. Ovo sluzi da se nauci sta je normalan rad sistema.\n\n*Sta sad treba da uradis:*\n\n1. Pregledaj naucena pravila interaktivno:\n\`\`\`\nsudo aa-logprof\n\`\`\`\nOvo ti pokazuje svako krsenje i pita te da li da ga dozvolis (Allow), zabrani (Deny), ili ignorise.\n\n2. Kada zavrsis pregled, prebaci sve profile u enforce mod:\n\`\`\`\nsudo aa-enforce /etc/apparmor.d/*\n\`\`\`\n\n3. Proveri status:\n\`\`\`\nsudo aa-status | head -20\n\`\`\`\n\n*Ako nisi spreman* -- nema zurbe. Profili ostaju u complain modu dok ih rucno ne prebacis. Nista se nece pokvariti.\n\n---\n_Ovaj podsetnik je automatski poslan sa systemd timera. Timer je sada onemogucen._"
+  "text": ":shield: *AppArmor: __LEARNING_DAYS__-day learning period is complete*\n\n*Host:* \`${HOSTNAME}\`\n*Profiles in complain mode:* ${PROFILES_COUNT}\n*Logged allowed violations:* ${LOG_VIOLATIONS}\n\n---\n\n*What happened over the last __LEARNING_DAYS__ days?*\nAll AppArmor profiles were in *complain (learning) mode*. This means AppArmor did NOT block anything, but it logged every application behavior that would otherwise be denied. This helps learn what normal system operation looks like.\n\n*What to do now:*\n\n1. Review learned rules interactively:\n\`\`\`\nsudo aa-logprof\n\`\`\`\nThis shows each violation and asks whether to Allow, Deny, or ignore it.\n\n2. Once done reviewing, switch all profiles to enforce mode:\n\`\`\`\nsudo aa-enforce /etc/apparmor.d/*\n\`\`\`\n\n3. Verify status:\n\`\`\`\nsudo aa-status | head -20\n\`\`\`\n\n*Not ready yet?* No rush. Profiles stay in complain mode until you manually switch them. Nothing will break.\n\n---\n_This reminder was sent automatically by a systemd timer. The timer is now disabled._"
 }
 EOFMSG
 
@@ -104,7 +104,7 @@ echo "  done."
 echo "[5/5] Sending test message to Slack..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$WEBHOOK_URL" \
   -H 'Content-Type: application/json' \
-  -d "{\"username\": \"AppArmor Bot\", \"icon_emoji\": \":shield:\", \"text\": \":white_check_mark: *AppArmor learning mode aktiviran na \`$(hostname)\`.*\nPodsetnik stize za ${LEARNING_DAYS} dana.\"}")
+  -d "{\"username\": \"AppArmor Bot\", \"icon_emoji\": \":shield:\", \"text\": \":white_check_mark: *AppArmor learning mode activated on \`$(hostname)\`.*\nReminder in ${LEARNING_DAYS} days.\"}")
 
 if [[ "$HTTP_CODE" == "200" ]]; then
     echo "  webhook test: OK (HTTP $HTTP_CODE)"
