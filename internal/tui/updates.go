@@ -46,7 +46,7 @@ var versionCheckers = []versionChecker{
 	},
 	{
 		moduleID:   "go",
-		repo:       "golang/go",
+		repo:       "",
 		versionCmd: []string{"go", "version"},
 		versionRe:  regexp.MustCompile(`go(\d+\.\d+\.\d+)`),
 	},
@@ -134,13 +134,14 @@ func checkVersion(ctx context.Context, c versionChecker) updateCheckResult {
 		return updateCheckResult{moduleID: c.moduleID}
 	}
 
-	latest := getLatestGitHubVersion(ctx, c.repo)
-	if latest == "" {
-		return updateCheckResult{moduleID: c.moduleID, status: "[installed]"}
+	var latest string
+	if c.moduleID == "go" {
+		latest = getLatestGoVersion(ctx)
+	} else if c.repo != "" {
+		latest = getLatestGitHubVersion(ctx, c.repo)
 	}
-
-	if installed == latest {
-		return updateCheckResult{moduleID: c.moduleID, status: fmt.Sprintf("[latest %s]", installed)}
+	if latest == "" || installed == latest {
+		return updateCheckResult{moduleID: c.moduleID, status: fmt.Sprintf("[installed %s]", installed)}
 	}
 
 	return updateCheckResult{
@@ -160,6 +161,30 @@ func tryGetVersion(ctx context.Context, cmd string) string {
 	re := regexp.MustCompile(`(\d+\.\d+[\.\d]*)`)
 	if m := re.FindString(string(out)); m != "" {
 		return m
+	}
+	return ""
+}
+
+// getLatestGoVersion fetches the latest Go version from go.dev/dl/?mode=json.
+func getLatestGoVersion(ctx context.Context) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://go.dev/dl/?mode=json&include=all", nil)
+	if err != nil {
+		return ""
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	// Response is JSON array, first element has "version": "go1.24.1"
+	// Just extract with regex from first few bytes
+	buf := make([]byte, 512)
+	n, _ := resp.Body.Read(buf)
+	re := regexp.MustCompile(`"version"\s*:\s*"go(\d+\.\d+\.\d+)"`)
+	if m := re.FindSubmatch(buf[:n]); len(m) > 1 {
+		return string(m[1])
 	}
 	return ""
 }

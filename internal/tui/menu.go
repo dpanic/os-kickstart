@@ -369,8 +369,6 @@ func (m menuModel) renderItem(i int, item menuItem) string {
 		switch {
 		case strings.HasPrefix(item.Status, "[update"):
 			line += " " + updateAvailableStyle.Render(item.Status)
-		case strings.HasPrefix(item.Status, "[latest"):
-			line += " " + latestStyle.Render(item.Status)
 		case strings.HasPrefix(item.Status, "[installed"):
 			line += " " + installedStyle.Render(item.Status)
 		default:
