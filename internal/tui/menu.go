@@ -117,9 +117,21 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 	case updateCheckDoneMsg:
 		m.checksRan = true
 		for _, r := range msg.results {
+			if r.status == "" {
+				continue
+			}
 			for i := range m.items {
 				if !m.items[i].separator && m.items[i].module.ID == r.moduleID {
-					m.items[i].Status = r.status
+					current := m.items[i].Status
+					// Only upgrade: update > installed+ver > installed > empty
+					if strings.HasPrefix(r.status, "[update") {
+						m.items[i].Status = r.status
+					} else if strings.Contains(r.status, " ") && !strings.Contains(current, " ") {
+						// New has version, current doesn't
+						m.items[i].Status = r.status
+					} else if current == "" {
+						m.items[i].Status = r.status
+					}
 				}
 			}
 		}
