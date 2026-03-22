@@ -11,25 +11,27 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dpanic/os-kickstart/internal/modules"
 )
 
 type updateCheckResult struct {
 	moduleID string
-	status   string // "[update: x → y]", "[latest]", "[installed]", ""
+	status   string // "[update available]", "[latest]", "[installed]", ""
 }
 
 type updateCheckDoneMsg struct {
 	results []updateCheckResult
 }
 
-type updateChecker struct {
-	repo       string         // "owner/repo"
+type versionChecker struct {
 	moduleID   string
+	repo       string         // "owner/repo" for GitHub release check
 	versionCmd []string       // command to get installed version
 	versionRe  *regexp.Regexp // regex to extract semver from command output
 }
 
-var checkers = []updateChecker{
+// checkers defines modules that have GitHub release version tracking.
+var versionCheckers = []versionChecker{
 	{
 		moduleID:   "shell-starship",
 		repo:       "starship/starship",
@@ -68,25 +70,49 @@ var checkers = []updateChecker{
 	},
 }
 
-// runUpdateChecks returns a Cmd that checks all registered modules for
-// available updates by comparing the locally installed version against
-// the latest GitHub release tag.
-func runUpdateChecks() tea.Cmd {
+// runUpdateChecks checks both version updates (GitHub) and installed status for all modules.
+func runUpdateChecks(mods []modules.Module) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		results := make([]updateCheckResult, len(checkers))
+		// Build lookup for version checkers
+		versionMap := make(map[string]*versionChecker, len(versionCheckers))
+		for i := range versionCheckers {
+			versionMap[versionCheckers[i].moduleID] = &versionCheckers[i]
+		}
+
+		results := make([]updateCheckResult, len(mods))
 		var wg sync.WaitGroup
 
-		for i, c := range checkers {
+		for i, mod := range mods {
 			wg.Add(1)
-			go func(idx int, chk updateChecker) {
+			go func(idx int, m modules.Module) {
 				defer wg.Done()
-				checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
-				defer checkCancel()
-				results[idx] = checkOne(checkCtx, chk)
-			}(i, c)
+
+				// Check if this module has a version checker (GitHub releases)
+				if vc, ok := versionMap[m.ID]; ok {
+					checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
+					defer checkCancel()
+					results[idx] = checkVersion(checkCtx, *vc)
+					return
+				}
+
+				// Otherwise just check if installed
+				if m.InstalledCmd != "" {
+					if isInstalled(m.InstalledCmd) {
+						results[idx] = updateCheckResult{
+							moduleID: m.ID,
+							status:   "[installed]",
+						}
+					} else {
+						results[idx] = updateCheckResult{moduleID: m.ID}
+					}
+					return
+				}
+
+				results[idx] = updateCheckResult{moduleID: m.ID}
+			}(i, mod)
 		}
 
 		wg.Wait()
@@ -94,16 +120,14 @@ func runUpdateChecks() tea.Cmd {
 	}
 }
 
-func checkOne(ctx context.Context, c updateChecker) updateCheckResult {
+func checkVersion(ctx context.Context, c versionChecker) updateCheckResult {
 	installed := getInstalledVersion(c.versionCmd, c.versionRe)
 	if installed == "" {
-		// Not installed — no badge.
-		return updateCheckResult{moduleID: c.moduleID, status: ""}
+		return updateCheckResult{moduleID: c.moduleID}
 	}
 
 	latest := getLatestGitHubVersion(ctx, c.repo)
 	if latest == "" {
-		// Could not reach GitHub — show what we know.
 		return updateCheckResult{moduleID: c.moduleID, status: "[installed]"}
 	}
 
@@ -113,8 +137,13 @@ func checkOne(ctx context.Context, c updateChecker) updateCheckResult {
 
 	return updateCheckResult{
 		moduleID: c.moduleID,
-		status:   fmt.Sprintf("[update: %s → %s]", installed, latest),
+		status:   fmt.Sprintf("[update available]"),
 	}
+}
+
+func isInstalled(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
 }
 
 func getInstalledVersion(cmd []string, re *regexp.Regexp) string {
@@ -163,7 +192,6 @@ func getLatestGitHubVersion(ctx context.Context, repo string) string {
 		return ""
 	}
 
-	// Location looks like: .../releases/tag/v1.2.3
 	parts := strings.Split(loc, "/")
 	if len(parts) == 0 {
 		return ""
