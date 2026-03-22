@@ -394,6 +394,21 @@ func (m menuModel) View() string {
 		end = len(lines)
 	}
 
+	// Sticky section header — show current section if its separator scrolled off
+	if m.filter == "" && start > 0 {
+		currentSection := ""
+		for idx := start; idx >= 0; idx-- {
+			if idx < len(m.items) && m.items[idx].separator && m.items[idx].label != "" && !strings.HasPrefix(m.items[idx].label, "  ") {
+				currentSection = m.items[idx].label
+				break
+			}
+		}
+		if currentSection != "" {
+			// Only show if the separator itself is above the viewport
+			b.WriteString(sectionStyle.Render(fmt.Sprintf("  ── %s ──", currentSection)) + "\n")
+		}
+	}
+
 	rendered := 0
 	for _, line := range lines[start:end] {
 		b.WriteString(line + "\n")
