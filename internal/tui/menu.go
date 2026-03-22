@@ -69,6 +69,17 @@ func newMenuModel(mods []modules.Module) menuModel {
 		}
 	}
 
+	// Sync installed check — instant, no network
+	for i := range items {
+		if items[i].separator {
+			continue
+		}
+		cmd := items[i].module.InstalledCmd
+		if cmd != "" && isInstalled(cmd) {
+			items[i].Status = "[installed]"
+		}
+	}
+
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
 	s.Style = lipgloss.NewStyle().Foreground(ColorAccent2)
@@ -343,9 +354,9 @@ func (m menuModel) renderItem(i int, item menuItem) string {
 
 	if item.Status != "" {
 		switch {
-		case strings.Contains(item.Status, "update available"):
+		case strings.HasPrefix(item.Status, "[update"):
 			line += " " + updateAvailableStyle.Render(item.Status)
-		case item.Status == "[latest]":
+		case strings.HasPrefix(item.Status, "[latest"):
 			line += " " + latestStyle.Render(item.Status)
 		case item.Status == "[installed]":
 			line += " " + installedStyle.Render(item.Status)

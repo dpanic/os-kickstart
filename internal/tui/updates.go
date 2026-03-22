@@ -132,12 +132,12 @@ func checkVersion(ctx context.Context, c versionChecker) updateCheckResult {
 	}
 
 	if installed == latest {
-		return updateCheckResult{moduleID: c.moduleID, status: "[latest]"}
+		return updateCheckResult{moduleID: c.moduleID, status: fmt.Sprintf("[latest %s]", installed)}
 	}
 
 	return updateCheckResult{
 		moduleID: c.moduleID,
-		status:   fmt.Sprintf("[update available]"),
+		status:   fmt.Sprintf("[update %s → %s]", installed, latest),
 	}
 }
 
