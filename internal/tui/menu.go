@@ -59,10 +59,20 @@ func newMenuModel(mods []modules.Module) menuModel {
 	}
 }
 
-func (m menuModel) Init() tea.Cmd { return nil }
+func (m menuModel) Init() tea.Cmd { return runUpdateChecks() }
 
 func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case updateCheckDoneMsg:
+		for _, r := range msg.results {
+			for i := range m.items {
+				if !m.items[i].separator && m.items[i].module.ID == r.moduleID {
+					m.items[i].Status = r.status
+				}
+			}
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.height = msg.Height - 6 // leave room for header/footer
 		if m.height < 10 {
@@ -136,7 +146,14 @@ func (m menuModel) View() string {
 		}
 
 		if item.Status != "" {
-			line += " " + item.Status
+			switch {
+			case strings.Contains(item.Status, "update:"):
+				line += " " + lipgloss.NewStyle().Foreground(ColorWarn).Render(item.Status)
+			case item.Status == "[latest]":
+				line += " " + OKStyle.Render(item.Status)
+			default:
+				line += " " + MutedStyle.Render(item.Status)
+			}
 		}
 
 		b.WriteString(line + "\n")
