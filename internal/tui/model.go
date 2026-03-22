@@ -38,8 +38,8 @@ type Model struct {
 	userName        string
 	userEmail       string
 	webhookURL      string
-	tmpDir          string
-	cleanupFn       func()
+	tmpDir    string
+	cleanupFn func()
 }
 
 // New creates a new root Model.
@@ -51,6 +51,29 @@ func New(cfg Config) Model {
 		banner: newBannerModel(cfg.Version, cfg.Commit),
 		menu:   newMenuModel(mods),
 		mode:   newModeModel(),
+	}
+}
+
+var (
+	// globalProgram holds the tea.Program reference for sending messages
+	// from background goroutines (e.g., real-time script output).
+	globalProgram *tea.Program
+
+	// globalCleanup is called on SIGTERM or abnormal exit to remove tmpdir.
+	globalCleanup func()
+)
+
+// SetProgram injects the tea.Program reference. Must be called
+// after tea.NewProgram and before Run.
+func SetProgram(p *tea.Program) {
+	globalProgram = p
+}
+
+// RunCleanup calls the registered cleanup function (tmpdir removal).
+func RunCleanup() {
+	if globalCleanup != nil {
+		globalCleanup()
+		globalCleanup = nil
 	}
 }
 
@@ -127,10 +150,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.webhookURL = msg.webhook
 
 	case confirmMsg:
-		if !msg.confirmed {
-			m.screen = screenMenu
-			return m, nil
-		}
 		// Extract embedded assets and start execution
 		tmpDir, cleanup, err := kickembed.Extract(m.config.Assets)
 		if err != nil {
@@ -141,6 +160,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.tmpDir = tmpDir
 		m.cleanupFn = cleanup
+		globalCleanup = cleanup
 
 		env := map[string]string{
 			"KICKSTART_USER_NAME":  m.userName,
@@ -152,8 +172,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tmpDir,
 			m.selectedMode.Flag(),
 			env,
-			m.config.Assets,
+			m.webhookURL,
 		)
+		m.executor.program = globalProgram
 		m.screen = screenExecutor
 		return m, m.executor.Init()
 

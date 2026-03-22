@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -75,11 +76,20 @@ func runUpdateChecks() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		results := make([]updateCheckResult, 0, len(checkers))
-		for _, c := range checkers {
-			results = append(results, checkOne(ctx, c))
+		results := make([]updateCheckResult, len(checkers))
+		var wg sync.WaitGroup
+
+		for i, c := range checkers {
+			wg.Add(1)
+			go func(idx int, chk updateChecker) {
+				defer wg.Done()
+				checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
+				defer checkCancel()
+				results[idx] = checkOne(checkCtx, chk)
+			}(i, c)
 		}
 
+		wg.Wait()
 		return updateCheckDoneMsg{results: results}
 	}
 }

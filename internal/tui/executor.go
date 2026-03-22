@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/progress"
@@ -26,11 +25,11 @@ type executorModel struct {
 	done     bool
 
 	// Execution context
-	tmpDir string
-	mode   string
-	env    map[string]string
-	cancel context.CancelFunc
-	assets fs.FS
+	tmpDir     string
+	mode       string
+	env        map[string]string
+	webhookURL string
+	program    *tea.Program
 }
 
 func newExecutorModel(
@@ -38,9 +37,21 @@ func newExecutorModel(
 	tmpDir string,
 	modeFlag string,
 	env map[string]string,
-	assets fs.FS,
+	webhookURL string,
 ) executorModel {
 	groups := modules.GroupByScript(selected)
+
+	// Skip apparmor if no webhook URL provided
+	if webhookURL == "" {
+		filtered := make([]modules.ScriptGroup, 0, len(groups))
+		for _, g := range groups {
+			if g.Script == "apparmor/setup.sh" {
+				continue
+			}
+			filtered = append(filtered, g)
+		}
+		groups = filtered
+	}
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -49,14 +60,14 @@ func newExecutorModel(
 	p := progress.New(progress.WithDefaultGradient())
 
 	return executorModel{
-		groups:   groups,
-		results:  make([]runner.Result, 0, len(groups)),
-		spinner:  s,
-		progress: p,
-		tmpDir:   tmpDir,
-		mode:     modeFlag,
-		env:      env,
-		assets:   assets,
+		groups:     groups,
+		results:    make([]runner.Result, 0, len(groups)),
+		spinner:    s,
+		progress:   p,
+		tmpDir:     tmpDir,
+		mode:       modeFlag,
+		env:        env,
+		webhookURL: webhookURL,
 	}
 }
 
@@ -169,16 +180,32 @@ func (m executorModel) runCurrent() tea.Cmd {
 	modeFlag := m.mode
 	env := m.env
 	sudo := g.NeedsSudo
+	webhookURL := m.webhookURL
+	prog := m.program
+
+	// Apparmor: webhook URL is passed as first positional arg
+	components := g.Components
+	if g.Script == "apparmor/setup.sh" && webhookURL != "" && modeFlag == "" {
+		components = []string{webhookURL}
+	}
 
 	return func() tea.Msg {
 		result, err := runner.Run(context.Background(), runner.Params{
 			TmpDir:     tmpDir,
 			Script:     g.Script,
-			Components: g.Components,
+			Components: components,
 			Mode:       modeFlag,
 			Env:        env,
 			LogDir:     "logs",
 			Sudo:       sudo,
+			OnLine: func(line string) {
+				if prog != nil {
+					prog.Send(scriptOutputMsg{
+						module: g.Script,
+						line:   line,
+					})
+				}
+			},
 		})
 		if err != nil {
 			return scriptDoneMsg{result: runner.Result{

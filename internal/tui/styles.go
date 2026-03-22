@@ -10,14 +10,6 @@ var (
 	ColorError   = lipgloss.Color("196") // red
 	ColorMuted   = lipgloss.Color("240") // gray
 
-	TitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorAccent).
-			MarginBottom(1)
-
-	SubtitleStyle = lipgloss.NewStyle().
-			Foreground(ColorAccent2)
-
 	OKStyle = lipgloss.NewStyle().
 		Foreground(ColorOK)
 
@@ -26,9 +18,4 @@ var (
 
 	MutedStyle = lipgloss.NewStyle().
 			Foreground(ColorMuted)
-
-	BorderStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorAccent).
-			Padding(0, 1)
 )
