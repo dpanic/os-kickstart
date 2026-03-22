@@ -1,69 +1,194 @@
-# Kickstart TUI Demo
+# OS Kickstart TUI Demo
 # Recorded with VHS: https://github.com/charmbracelet/vhs
 
 Output demo.gif
 
-Require gum
-
 Set Shell "bash"
 Set FontSize 14
 Set Width 1100
-Set Height 700
+Set Height 420
 Set Padding 20
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 50ms
 Set Framerate 24
 
-Type "bash main.sh"
+Type "./kickstart"
 Sleep 400ms
 Enter
 
-# Wait for banner + update checks + menu
-Sleep 7s
+# Wait for menu + update checks
+Sleep 4s
 
-# pos=1 GNOME Optimize → select
+# Scroll all the way down to bottom (26 items + separators)
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
+
+Sleep 1s
+
+# Scroll back up to top
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+Up
+Sleep 150ms
+
+Sleep 500ms
+
+# Select GNOME Optimize
 Space
 Sleep 300ms
 
-# pos=2 Nautilus → select
+# Select Nautilus
 Down
 Space
 Sleep 300ms
 
-# Down 5: AppArmor(3), spacer(4), Installations(5), zsh(6), fzf(7)
-Down 5
+# Skip down to Shell section
+Down
+Sleep 200ms
+Down
+Sleep 200ms
+Down
+Sleep 200ms
+Down
+Sleep 200ms
+Down
+Sleep 200ms
+Down
+Sleep 200ms
+Down
+Sleep 200ms
+Down
 Sleep 200ms
 
-# pos=7 fzf → select
+# Select fzf
 Space
 Sleep 300ms
 
-# Down 9: starship(8), direnv(9), plugins(10), nvm(11), git(12),
-#          spacer(13), byobu(14), ncdu(15), Yazi(16)
-Down 9
-Sleep 200ms
+Sleep 500ms
 
-# pos=16 Yazi → select
-Space
+# Demo filter search
+Type "/"
 Sleep 300ms
+Type "docker"
+Sleep 1s
+Escape
+Sleep 500ms
 
-# Down 4: spacer(17), Docker(18), Go(19), Neovim(20)
-Down 4
-Sleep 200ms
+# Select all with ctrl+a
+Ctrl+a
+Sleep 1s
 
-# pos=20 Neovim → select
-Space
-Sleep 1500ms
-
-# Confirm selection
+# Confirm
 Enter
-Sleep 1500ms
+Sleep 1s
 
-# Choose "Install" mode
+# Pick Install mode
 Enter
-Sleep 1500ms
+Sleep 1s
 
-# Decline confirmation
-Ctrl+C
+# Cancel at confirm screen
+Escape
 
 Sleep 1s
+
+# Quit
+Type "q"
+Sleep 500ms

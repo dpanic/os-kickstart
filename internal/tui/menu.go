@@ -384,22 +384,32 @@ func (m menuModel) View() string {
 		}
 	}
 
-	// Apply scroll window
-	end := m.offset + m.height
-	if end > len(lines) {
-		end = len(lines)
-	}
+	// Apply scroll window — always render exactly m.height lines to prevent flicker
 	start := m.offset
 	if start > len(lines) {
 		start = len(lines)
 	}
-
-	for _, line := range lines[start:end] {
-		b.WriteString(line + "\n")
+	end := start + m.height
+	if end > len(lines) {
+		end = len(lines)
 	}
 
+	rendered := 0
+	for _, line := range lines[start:end] {
+		b.WriteString(line + "\n")
+		rendered++
+	}
+
+	// Show scroll indicator or pad
 	if end < len(lines) {
-		b.WriteString(MutedStyle.Render("  ▼ "+fmt.Sprintf("%d more", len(lines)-end)) + "\n")
+		b.WriteString(MutedStyle.Render(fmt.Sprintf("  ▼ %d more", len(lines)-end)) + "\n")
+		rendered++
+	}
+
+	// Pad remaining lines to keep total height constant
+	for rendered < m.height+1 {
+		b.WriteString("\n")
+		rendered++
 	}
 
 	// ── Footer status bar ───────────────────────────────────────
