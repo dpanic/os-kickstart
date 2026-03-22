@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dpanic/os-kickstart/internal/modules"
+	"golang.org/x/term"
 )
 
 type menuItem struct {
@@ -43,6 +44,7 @@ func newMenuModel(mods []modules.Module) menuModel {
 		}
 	}
 
+	items = append(items, menuItem{separator: true, label: ""}) // spacer
 	items = append(items, menuItem{separator: true, label: "Installations"})
 	for _, sub := range modules.InstallSubsections() {
 		hasItems := false
@@ -84,6 +86,14 @@ func newMenuModel(mods []modules.Module) menuModel {
 			if _, err := os.Stat(path); err == nil {
 				items[i].Status = "[installed]"
 			}
+		} else if mod.InstalledGrepFile != "" {
+			parts := strings.SplitN(mod.InstalledGrepFile, ":", 2)
+			if len(parts) == 2 {
+				data, err := os.ReadFile(parts[0])
+				if err == nil && strings.Contains(string(data), parts[1]) {
+					items[i].Status = "[installed]"
+				}
+			}
 		}
 	}
 
@@ -96,7 +106,7 @@ func newMenuModel(mods []modules.Module) menuModel {
 		allMods:  mods,
 		cursor:   cursor,
 		selected: make(map[int]bool),
-		height:   25,
+		height:   detectTermHeight(),
 		spinner:  s,
 	}
 }
@@ -226,6 +236,18 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 	return m, nil
 }
 
+func detectTermHeight() int {
+	_, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || h <= 0 {
+		h = 30
+	}
+	usable := int(float64(h) * 0.80)
+	if usable < 10 {
+		usable = 10
+	}
+	return usable
+}
+
 func (m *menuModel) applyFilter() {
 	if m.filter == "" {
 		m.visible = nil
@@ -250,24 +272,24 @@ func (m *menuModel) applyFilter() {
 }
 
 func (m *menuModel) fixScroll() {
-	// Simple: keep cursor in visible range
-	if m.cursor < m.offset {
-		m.offset = m.cursor
+	// Scroll by 1 to keep cursor visible
+	for m.cursor < m.offset {
+		m.offset--
 	}
-	if m.cursor >= m.offset+m.height {
-		m.offset = m.cursor - m.height + 1
+	for m.cursor >= m.offset+m.height {
+		m.offset++
 	}
 
 	// Clamp
-	maxOffset := len(m.items) - m.height
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if m.offset > maxOffset {
-		m.offset = maxOffset
-	}
 	if m.offset < 0 {
 		m.offset = 0
+	}
+	max := len(m.items) - m.height
+	if max < 0 {
+		max = 0
+	}
+	if m.offset > max {
+		m.offset = max
 	}
 }
 
@@ -418,6 +440,9 @@ func (m menuModel) View() string {
 func (m menuModel) renderItem(i int, item menuItem) string {
 	if item.separator {
 		label := item.label
+		if label == "" {
+			return "" // spacer
+		}
 		if !strings.HasPrefix(label, "  ") {
 			return sectionStyle.Render(fmt.Sprintf("  ── %s ──", label))
 		}
