@@ -323,16 +323,7 @@ func (m menuModel) View() string {
 	byText := HeaderByLineStyle.Render(" by dpanic")
 	headerLeft := lipgloss.JoinHorizontal(lipgloss.Center, titleText, byText)
 
-	if !m.checksRan {
-		spinnerText := HeaderSpinnerLabel.Render(" checking for updates")
-		headerLeft = lipgloss.JoinHorizontal(
-			lipgloss.Center,
-			headerLeft,
-			"  ",
-			m.spinner.View(),
-			spinnerText,
-		)
-	}
+	// spinner moved to footer
 
 	header := HeaderBorderStyle.Width(w - 4).Render(headerLeft)
 	b.WriteString(header + "\n")
@@ -395,16 +386,19 @@ func (m menuModel) View() string {
 		end = len(lines)
 	}
 
-	// Sticky section header — show current section if its separator scrolled off
+	// Sticky section header — only show when the original separator is above the viewport
 	if m.filter == "" && start > 0 {
+		sectionIdx := -1
 		currentSection := ""
-		for idx := start; idx >= 0; idx-- {
-			if idx < len(m.items) && m.items[idx].separator && m.items[idx].label != "" && !strings.HasPrefix(m.items[idx].label, "  ") {
+		for idx := start - 1; idx >= 0; idx-- {
+			if m.items[idx].separator && m.items[idx].label != "" && !strings.HasPrefix(m.items[idx].label, "  ") {
+				sectionIdx = idx
 				currentSection = m.items[idx].label
 				break
 			}
 		}
-		if currentSection != "" {
+		// Only show sticky if the separator is ABOVE the viewport (not visible)
+		if sectionIdx >= 0 && sectionIdx < start {
 			b.WriteString(sectionStyle.Render(fmt.Sprintf("  ── %s ──", currentSection)) + "\n")
 		}
 	}
@@ -440,7 +434,9 @@ func (m menuModel) View() string {
 	}
 
 	rightText := ""
-	if updates > 0 {
+	if !m.checksRan {
+		rightText = m.spinner.View() + HeaderSpinnerLabel.Render(" checking for updates ")
+	} else if updates > 0 {
 		rightText = FooterUpdateStyle.Render(
 			fmt.Sprintf("%d update(s) available ", updates),
 		)
