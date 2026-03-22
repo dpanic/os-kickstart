@@ -252,7 +252,7 @@ func (m menuModel) selectableCount() int {
 }
 
 var (
-	updateAvailableStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	updateAvailableStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
 	latestStyle          = OKStyle
 	installedStyle       = MutedStyle
 	sectionStyle         = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
@@ -317,7 +317,20 @@ func (m menuModel) View() string {
 	// Footer
 	count := len(m.selected)
 	total := m.selectableCount()
-	b.WriteString(MutedStyle.Render(fmt.Sprintf("\n  %d / %d selected", count, total)))
+	footer := fmt.Sprintf("\n  %d / %d selected", count, total)
+
+	// Count available updates
+	updates := 0
+	for _, item := range m.items {
+		if strings.HasPrefix(item.Status, "[update") {
+			updates++
+		}
+	}
+	if updates > 0 {
+		footer += fmt.Sprintf("  •  %d update(s) available", updates)
+	}
+
+	b.WriteString(MutedStyle.Render(footer))
 
 	return b.String()
 }

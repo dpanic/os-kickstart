@@ -199,7 +199,10 @@ func getLatestGitHubVersion(ctx context.Context, repo string) string {
 	}
 
 	tag := parts[len(parts)-1]
-	tag = strings.TrimPrefix(tag, "v")
-	tag = strings.TrimPrefix(tag, "go") // golang/go tags: go1.22.0
-	return tag
+	// Extract semver from tag — handles "v1.2.3", "go1.22.0", plain "1.2.3"
+	re := regexp.MustCompile(`(\d+\.\d+\.\d+)`)
+	if m := re.FindString(tag); m != "" {
+		return m
+	}
+	return ""
 }
