@@ -1,149 +1,183 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Ubuntu-24.04-E95420?style=flat-square&logo=ubuntu&logoColor=white" alt="Ubuntu 24.04" />
   <img src="https://img.shields.io/badge/macOS-Supported-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
-  <img src="https://img.shields.io/badge/Shell-Bash-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white" alt="Bash" />
-  <img src="https://img.shields.io/badge/TUI-gum-FF69B4?style=flat-square" alt="gum TUI" />
+  <img src="https://img.shields.io/badge/Go-Binary-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go" />
+  <img src="https://img.shields.io/badge/TUI-Bubble_Tea-FF69B4?style=flat-square" alt="Bubble Tea TUI" />
 </p>
 
-# 🚀 Kickstart
+# OS Kickstart
 
-> **One command to bootstrap a full dev environment on Ubuntu or macOS.**
+> **One binary to bootstrap a full dev environment on Ubuntu or macOS.**
 
 by **Dusan Panic** \<dpanic@gmail.com\>
 
-<p align="center">
-  <img src="demo.gif" alt="Kickstart TUI demo" width="720" />
-</p>
-
 ---
 
-## ⚡ Quick Start
+## Quick Start
+
+**Download the latest release:**
+
+```bash
+curl -sSL https://github.com/dpanic/os-kickstart/releases/latest/download/kickstart_linux_amd64.tar.gz | tar xz
+./kickstart
+```
+
+**Or build from source:**
 
 ```bash
 git clone https://github.com/dpanic/os-kickstart.git
 cd os-kickstart
-bash main.sh
+make build
+./kickstart
 ```
 
-`main.sh` launches an interactive TUI powered by [gum](https://github.com/charmbracelet/gum) where you pick what to install. It auto-installs `gum` if missing.
+**Or install via Go:**
+
+```bash
+go install github.com/dpanic/os-kickstart@latest
+```
 
 ---
 
-## ✨ Features
+## Features
 
-- 🎛️ **Interactive TUI** — multi-select menu with real-time update checks
-- 🔄 **Install · Update · Uninstall** — fresh install, refresh to latest, or clean removal
-- 📦 **Idempotent** — safe to re-run, skips what's already installed
-- 🐧🍎 **Cross-platform** — Ubuntu 24.04 + macOS (Linux-only items auto-hidden on Mac)
-- ⚡ **Parallel update checks** — checks GitHub/git for new versions in background
+- **Single binary** — all shell scripts and configs embedded via `go:embed`, zero dependencies
+- **Interactive TUI** — multi-select menu with categories, search filter, scroll viewport
+- **Install / Update / Uninstall** — fresh install, refresh to latest, or clean removal
+- **Idempotent** — safe to re-run, skips what's already installed
+- **Cross-platform** — Ubuntu 24.04 + macOS (Linux-only items auto-hidden on Mac)
+- **Async update checks** — checks GitHub releases and go.dev for new versions in background
+- **Installed detection** — shows `[installed X.Y.Z]` for tools already on the system
 
 ---
 
-## 🖥️ What's Included
+## What's Included
 
-### 🔧 Optimizations *(Linux only)*
+### Optimizations *(Linux only)*
 
-| Script | Description |
+| Module | Description |
 |--------|-------------|
-| `modules/gnome/` | Disable GNOME animations, sounds, hot corners, non-essential extensions |
-| `modules/nautilus/` | Restrict Tracker indexing, limit thumbnails, clear cache |
-| `modules/apparmor/` | AppArmor learning mode + Slack reminder after 7 days |
-| `modules/kernel/` | Kernel sysctl tuning, file descriptor limits, I/O scheduler, RAM-based autotune |
-| `modules/sshd/` | OpenSSH server hardening (`sshd_config`; disables password auth) |
+| GNOME Optimize | Disable animations, sounds, hot corners, non-essential extensions |
+| Nautilus Optimize | Restrict Tracker indexing, limit thumbnails, clear cache |
+| AppArmor Setup | Learning mode + Slack reminder after 7 days |
+| Kernel sysctl | Network, memory, conntrack tuning |
+| Kernel limits | File descriptor & process limits |
+| Kernel I/O scheduler | `none` for SSD/NVMe |
+| Kernel autotune | RAM-based dynamic kernel params at boot |
+| SSH hardening | OpenSSH server hardening (disables password auth) |
 
-### 🐚 Shell Environment
+### Installations
+
+#### Shell
 
 | Component | Description |
 |-----------|-------------|
-| **zsh + oh-my-zsh** | Modern shell with plugin framework |
-| **fzf** | Fuzzy finder (installed from Git) |
-| **starship** | Cross-shell prompt with custom config |
-| **direnv** | Per-directory environment variables |
-| **zsh plugins** | autosuggestions + syntax-highlighting |
-| **nvm** | Node.js version manager |
-| **byobu + tmux** | Terminal multiplexer with mouse support *(Linux)* |
-| **git config** | LFS, SSH-over-HTTPS, gitconfig template |
+| zsh + oh-my-zsh | Modern shell with plugin framework |
+| fzf | Fuzzy finder |
+| starship | Cross-shell prompt with custom config |
+| direnv | Per-directory environment variables |
+| zsh plugins | autosuggestions + syntax-highlighting |
+| nvm | Node.js version manager |
+| byobu + tmux | Terminal multiplexer with mouse support *(Linux)* |
+| git config | LFS, SSH-over-HTTPS, gitconfig template |
 
-### 🖥️ Terminal & Dev Tools
+#### Terminal
 
 | Tool | Description |
 |------|-------------|
-| **ncdu** | Interactive disk usage analyzer |
-| **Yazi** | Blazing-fast terminal file manager |
-| **Docker** | Engine + Compose + BuildX + daemon config |
-| **Go** | Latest from go.dev tarball |
-| **Neovim + LazyVim** | IDE-grade editor with ripgrep, fd, lazygit |
+| ncdu | Interactive disk usage analyzer |
+| Yazi | Blazing-fast terminal file manager |
 
-### 🌐 Desktop Apps *(Linux only)*
+#### Dev Tools
 
-| App | Installation |
+| Tool | Description |
+|------|-------------|
+| Docker | Engine + Compose + BuildX + daemon config |
+| Go | Latest from go.dev |
+| Neovim + LazyVim | IDE-grade editor with ripgrep, fd, lazygit |
+
+#### Browsers & Apps *(Linux only)*
+
+| App | Description |
 |-----|-------------|
-| **Google Chrome** | `.deb` → APT repo |
-| **Brave** | APT repository |
-| **Signal Desktop** | APT repository |
-| **PeaZip** | GitHub release `.deb` (200+ archive formats) |
+| Google Chrome | APT repo |
+| Brave | APT repo |
+| Signal Desktop | APT repo |
+| PeaZip | Archive manager (200+ formats) |
 
 ---
 
-## 🔄 Modes
+## TUI Controls
+
+| Key | Action |
+|-----|--------|
+| `Up/Down` | Navigate |
+| `Space` | Toggle selection |
+| `Ctrl+A` | Select / deselect all |
+| `/` | Filter / search |
+| `Enter` | Confirm |
+| `Esc` | Clear filter / go back |
+| `q` | Quit |
+
+---
+
+## Modes
 
 After selecting items, choose a mode:
 
 | Mode | Description |
 |------|-------------|
 | **Install** | Fresh install, skips already-installed items |
-| **Update** | Refresh to latest versions (Git pull, re-download releases) |
+| **Update** | Refresh to latest versions |
 | **Uninstall** | Remove installed tools, revert optimizations from backups |
 
-```bash
-bash main.sh
-# → Select items → Choose mode → Confirm
-```
+Status badges in the menu:
 
-The TUI shows real-time status for each tool:
-- `[latest]` — already at newest version
-- **`[update available]`** — newer version detected
-- `[installed]` — installed, no update check available
+- `[installed X.Y.Z]` — installed with version
+- **`[update X.Y.Z -> A.B.C]`** — newer version available (bold white)
+- `[installed]` — installed, version unknown
 
 ---
 
-## 📋 Requirements
+## Requirements
 
 | | Requirement |
 |-|-------------|
-| 🐧 | **Ubuntu 24.04** with GNOME 46 |
-| 🍎 | **macOS** with Homebrew (auto-installed if missing) |
-| 🌐 | Internet connection (downloads from GitHub, go.dev, APT repos) |
-| 🔐 | `modules/apparmor/setup.sh` needs `sudo` and a Slack webhook URL |
+| Linux | Ubuntu 24.04 with GNOME 46 |
+| macOS | macOS with Homebrew |
+| Network | Internet connection for downloads |
 
 ---
 
-## 🛡️ Safety
-
-- 📄 Existing `~/.zshrc` is never overwritten (instructions printed instead)
-- 💾 Existing `~/.config/nvim` is backed up before LazyVim clone
-- 🔒 Snap-related AppArmor profiles stay in enforce mode
-- 🗑️ **Uninstall** restores system configs from `.bak-kickstart` backups created during install
-- 🐳 Docker data (`/var/lib/docker`) is preserved on uninstall — remove manually if needed
-
----
-
-## 🎬 Recording the Demo
-
-The demo GIF is recorded with [VHS](https://github.com/charmbracelet/vhs):
+## Build & Release
 
 ```bash
-vhs demo.tape
+make build           # Build binary
+make test            # Run tests
+make run             # Run from source
+make release-local   # GoReleaser snapshot
 ```
+
+Releases are automated via GitHub Actions — push a `v*` tag to create a release with binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64.
 
 ---
 
-## 📄 License
+## Safety
+
+- Existing `~/.zshrc` is never overwritten (instructions printed instead)
+- Existing `~/.config/nvim` is backed up before LazyVim clone
+- Snap-related AppArmor profiles stay in enforce mode
+- **Uninstall** restores system configs from `.bak-kickstart` backups
+- Docker data (`/var/lib/docker`) is preserved on uninstall
+
+---
+
+## License
 
 MIT
 
 ---
 
 <p align="center">
-  <sub>Built with ❤️ and <a href="https://github.com/charmbracelet/gum">gum</a></sub>
+  <sub>Built with <a href="https://github.com/charmbracelet/bubbletea">Bubble Tea</a></sub>
 </p>

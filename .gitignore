@@ -2,3 +2,6 @@ logs/
 docs/
 .worktrees/
 CLAUDE.md
+.claude
+kickstart
+os-kickstart
