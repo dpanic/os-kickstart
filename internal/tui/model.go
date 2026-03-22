@@ -47,7 +47,7 @@ func New(cfg Config) Model {
 	return Model{
 		config: cfg,
 		screen: screenBanner,
-		banner: newBannerModel(),
+		banner: newBannerModel(cfg.Version, cfg.Commit),
 		menu:   newMenuModel(mods),
 		mode:   newModeModel(),
 	}
