@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -75,9 +76,14 @@ func newMenuModel(mods []modules.Module) menuModel {
 		if items[i].separator {
 			continue
 		}
-		cmd := items[i].module.InstalledCmd
-		if cmd != "" && isInstalled(cmd) {
+		mod := items[i].module
+		if mod.InstalledCmd != "" && isInstalled(mod.InstalledCmd) {
 			items[i].Status = "[installed]"
+		} else if mod.InstalledCheck != "" {
+			path := os.ExpandEnv(mod.InstalledCheck)
+			if _, err := os.Stat(path); err == nil {
+				items[i].Status = "[installed]"
+			}
 		}
 	}
 
@@ -232,15 +238,12 @@ func (m *menuModel) applyFilter() {
 }
 
 func (m *menuModel) fixScroll() {
-	const scrollPadding = 3
-
-	// Keep cursor at least scrollPadding lines from top
-	if m.cursor < m.offset+scrollPadding {
-		m.offset = m.cursor - scrollPadding
+	// Simple: keep cursor in visible range
+	if m.cursor < m.offset {
+		m.offset = m.cursor
 	}
-	// Keep cursor at least scrollPadding lines from bottom
-	if m.cursor >= m.offset+m.height-scrollPadding {
-		m.offset = m.cursor - m.height + scrollPadding + 1
+	if m.cursor >= m.offset+m.height {
+		m.offset = m.cursor - m.height + 1
 	}
 
 	// Clamp

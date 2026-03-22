@@ -11,7 +11,8 @@ type Module struct {
 	Subsection   string   // grouping within category (e.g. "Shell", "Dev Tools")
 	OS           string   // "all", "linux", "darwin"
 	NeedsSudo    bool     // invoke with sudo bash
-	InstalledCmd string   // command to check if installed (empty = no check)
+	InstalledCmd   string // command to check if installed (empty = no check)
+	InstalledCheck string // file path to check if applied (empty = no check)
 }
 
 // AllModules returns the full registry, unfiltered.
@@ -21,10 +22,10 @@ func AllModules() []Module {
 		{ID: "gnome", Script: "gnome/optimize.sh", Label: "GNOME Optimize", Description: "disable animations, sounds, hot corners", Category: "optimization", OS: "linux", InstalledCmd: "gsettings"},
 		{ID: "nautilus", Script: "nautilus/optimize.sh", Label: "Nautilus Optimize", Description: "restrict Tracker, limit thumbnails", Category: "optimization", OS: "linux", InstalledCmd: "nautilus"},
 		{ID: "apparmor", Script: "apparmor/setup.sh", Label: "AppArmor Setup", Description: "learning mode with Slack reminder", Category: "optimization", OS: "linux", NeedsSudo: true, InstalledCmd: "apparmor_status"},
-		{ID: "kernel-sysctl", Script: "kernel/optimize.sh", Components: []string{"sysctl"}, Label: "Kernel ▸ sysctl.conf", Description: "network, memory, conntrack tuning", Category: "optimization", OS: "linux"},
-		{ID: "kernel-limits", Script: "kernel/optimize.sh", Components: []string{"limits"}, Label: "Kernel ▸ limits", Description: "file descriptor & process limits", Category: "optimization", OS: "linux"},
-		{ID: "kernel-scheduler", Script: "kernel/optimize.sh", Components: []string{"scheduler"}, Label: "Kernel ▸ I/O scheduler", Description: "none (SSD/NVMe)", Category: "optimization", OS: "linux"},
-		{ID: "kernel-autotune", Script: "kernel/optimize.sh", Components: []string{"autotune"}, Label: "Kernel ▸ autotune", Description: "RAM-based autotune service", Category: "optimization", OS: "linux"},
+		{ID: "kernel-sysctl", Script: "kernel/optimize.sh", Components: []string{"sysctl"}, Label: "Kernel ▸ sysctl.conf", Description: "network, memory, conntrack tuning", Category: "optimization", OS: "linux", InstalledCheck: "/etc/sysctl.conf.bak-kickstart"},
+		{ID: "kernel-limits", Script: "kernel/optimize.sh", Components: []string{"limits"}, Label: "Kernel ▸ limits", Description: "file descriptor & process limits", Category: "optimization", OS: "linux", InstalledCheck: "/etc/security/limits.conf.bak-kickstart"},
+		{ID: "kernel-scheduler", Script: "kernel/optimize.sh", Components: []string{"scheduler"}, Label: "Kernel ▸ I/O scheduler", Description: "none (SSD/NVMe)", Category: "optimization", OS: "linux", InstalledCheck: "/etc/udev/rules.d/60-scheduler.rules"},
+		{ID: "kernel-autotune", Script: "kernel/optimize.sh", Components: []string{"autotune"}, Label: "Kernel ▸ autotune", Description: "RAM-based autotune service", Category: "optimization", OS: "linux", InstalledCheck: "/etc/systemd/system/autotune.service"},
 		{ID: "sshd", Script: "sshd/setup.sh", Label: "SSH ▸ sshd hardening", Description: "disables password auth", Category: "optimization", OS: "linux", InstalledCmd: "sshd"},
 
 		// ── Installations / Shell ──
@@ -32,8 +33,8 @@ func AllModules() []Module {
 		{ID: "shell-fzf", Script: "shell/install.sh", Components: []string{"fzf"}, Label: "fzf", Description: "fuzzy finder", Category: "installation", Subsection: "Shell", OS: "all", InstalledCmd: "fzf"},
 		{ID: "shell-starship", Script: "shell/install.sh", Components: []string{"starship"}, Label: "starship prompt", Category: "installation", Subsection: "Shell", OS: "all", InstalledCmd: "starship"},
 		{ID: "shell-direnv", Script: "shell/install.sh", Components: []string{"direnv"}, Label: "direnv", Category: "installation", Subsection: "Shell", OS: "all", InstalledCmd: "direnv"},
-		{ID: "shell-plugins", Script: "shell/install.sh", Components: []string{"plugins"}, Label: "zsh plugins", Description: "autosuggestions, syntax-highlighting", Category: "installation", Subsection: "Shell", OS: "all"},
-		{ID: "shell-nvm", Script: "shell/install.sh", Components: []string{"nvm"}, Label: "nvm", Description: "Node version manager", Category: "installation", Subsection: "Shell", OS: "all"},
+		{ID: "shell-plugins", Script: "shell/install.sh", Components: []string{"plugins"}, Label: "zsh plugins", Description: "autosuggestions, syntax-highlighting", Category: "installation", Subsection: "Shell", OS: "all", InstalledCheck: "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions"},
+		{ID: "shell-nvm", Script: "shell/install.sh", Components: []string{"nvm"}, Label: "nvm", Description: "Node version manager", Category: "installation", Subsection: "Shell", OS: "all", InstalledCheck: "$HOME/.nvm/nvm.sh"},
 		{ID: "shell-git", Script: "shell/install.sh", Components: []string{"git"}, Label: "git config", Description: "LFS, SSH-over-HTTPS", Category: "installation", Subsection: "Shell", OS: "all", InstalledCmd: "git"},
 		{ID: "shell-byobu", Script: "shell/install.sh", Components: []string{"byobu"}, Label: "byobu + tmux", Category: "installation", Subsection: "Shell", OS: "linux", InstalledCmd: "byobu"},
 
