@@ -8,12 +8,22 @@ set -euo pipefail
 VERSION="${1:-}"
 
 if [[ -z "$VERSION" ]]; then
-    echo "Usage: $0 <version>"
-    echo "Example: $0 1.1.0"
-    echo ""
-    echo "Current tags:"
-    git tag --sort=-v:refname | head -5
-    exit 1
+    # Auto-increment: find latest tag and bump patch
+    LATEST_TAG=$(git tag --sort=-v:refname | head -1)
+    if [[ -z "$LATEST_TAG" ]]; then
+        VERSION="0.1.0"
+    else
+        LATEST="${LATEST_TAG#v}"
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
+        PATCH=$((PATCH + 1))
+        VERSION="${MAJOR}.${MINOR}.${PATCH}"
+    fi
+    echo "==> No version specified. Auto-incrementing from ${LATEST_TAG:-none} to v${VERSION}"
+    read -rp "    Continue? [y/N] " CONFIRM
+    if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+        echo "Aborted."
+        exit 1
+    fi
 fi
 
 # Strip leading 'v' if provided

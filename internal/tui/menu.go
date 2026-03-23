@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,6 +12,16 @@ import (
 	"github.com/dpanic/os-kickstart/internal/modules"
 	"golang.org/x/term"
 )
+
+// debugLogKey appends a timestamped keypress to /tmp/kickstart-keys.log.
+func debugLogKey(key string) {
+	f, err := os.OpenFile("/tmp/kickstart-keys.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s key=%q\n", time.Now().Format("15:04:05.000"), key)
+}
 
 type menuItem struct {
 	module    modules.Module
@@ -32,6 +43,7 @@ type menuModel struct {
 	filtering  bool
 	filter     string
 	visible    []int // indices of visible items when filtering
+	ready      bool  // true after first navigation key — blocks phantom space on startup
 }
 
 func newMenuModel(mods []modules.Module) menuModel {
@@ -157,6 +169,8 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 		m.fixScroll()
 
 	case tea.KeyMsg:
+		debugLogKey(msg.String())
+
 		// Filter mode input
 		if m.filtering {
 			switch msg.String() {
@@ -186,12 +200,17 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 
 		switch msg.String() {
 		case "up", "k":
+			m.ready = true
 			m.cursor = m.prevSelectable(m.cursor)
 			m.fixScroll()
 		case "down", "j":
+			m.ready = true
 			m.cursor = m.nextSelectable(m.cursor)
 			m.fixScroll()
 		case " ":
+			if !m.ready {
+				return m, nil
+			}
 			if !m.items[m.cursor].separator {
 				if m.selected[m.cursor] {
 					delete(m.selected, m.cursor)
@@ -200,6 +219,9 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 				}
 			}
 		case "ctrl+a":
+			if !m.ready {
+				return m, nil
+			}
 			allSelected := len(m.selected) == m.selectableCount()
 			if allSelected {
 				m.selected = make(map[int]bool)
@@ -211,6 +233,7 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 				}
 			}
 		case "/":
+			m.ready = true
 			m.filtering = true
 			m.filter = ""
 			return m, nil
@@ -443,9 +466,10 @@ func (m menuModel) View() string {
 	}
 
 	// Pad the bar to fill the full terminal width
+	// FooterBarStyle has Padding(0,1) = 2 chars total
 	leftWidth := lipgloss.Width(leftText)
 	rightWidth := lipgloss.Width(rightText)
-	gap := w - leftWidth - rightWidth
+	gap := w - leftWidth - rightWidth - 2
 	if gap < 0 {
 		gap = 0
 	}
