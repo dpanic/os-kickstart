@@ -5,6 +5,9 @@ set -euo pipefail
 # Usage: ./tooling/release.sh [version]
 # Example: ./tooling/release.sh 1.1.0
 
+# Always run from repo root (where Makefile lives)
+cd "$(git rev-parse --show-toplevel)"
+
 VERSION="${1:-}"
 
 if [[ -z "$VERSION" ]]; then
