@@ -328,7 +328,6 @@ func (m menuModel) selectableCount() int {
 
 var (
 	updateAvailableStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
-	latestStyle          = OKStyle
 	installedStyle       = MutedStyle
 	sectionStyle         = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
 	subsectionStyle      = lipgloss.NewStyle().Foreground(ColorAccent2)

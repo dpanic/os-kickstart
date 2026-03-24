@@ -15,10 +15,6 @@ type bannerModel struct {
 	commit  string
 }
 
-func newBannerModel(version, commit string) bannerModel {
-	return bannerModel{version: version, commit: commit}
-}
-
 func (m bannerModel) Init() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
