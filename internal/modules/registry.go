@@ -37,6 +37,7 @@ func AllModules() []Module {
 		{ID: "shell-autosuggestions", Script: "shell/install.sh", Components: []string{"plugins"}, Label: "zsh-autosuggestions", Category: "installation", Subsection: "Shell", OS: "all", InstalledCheck: "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions"},
 		{ID: "shell-syntax-hl", Script: "shell/install.sh", Components: []string{"plugins"}, Label: "zsh-syntax-highlighting", Category: "installation", Subsection: "Shell", OS: "all", InstalledCheck: "$HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting"},
 		{ID: "shell-nvm", Script: "shell/install.sh", Components: []string{"nvm"}, Label: "nvm", Description: "Node version manager", Category: "installation", Subsection: "Shell", OS: "all", InstalledCheck: "$HOME/.nvm/nvm.sh"},
+		{ID: "shell-fnm", Script: "shell/install.sh", Components: []string{"fnm"}, Label: "fnm", Description: "Fast Node Manager", Category: "installation", Subsection: "Shell", OS: "all", InstalledCmd: "fnm"},
 		{ID: "shell-git", Script: "shell/install.sh", Components: []string{"git"}, Label: "git config", Description: "LFS, SSH-over-HTTPS", Category: "installation", Subsection: "Shell", OS: "all", InstalledCmd: "git"},
 		{ID: "shell-byobu", Script: "shell/install.sh", Components: []string{"byobu"}, Label: "byobu + tmux", Category: "installation", Subsection: "Shell", OS: "linux", InstalledCmd: "byobu"},
 
