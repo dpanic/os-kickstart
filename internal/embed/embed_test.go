@@ -12,7 +12,7 @@ import (
 func TestExtract_CreatesFilesInTmpDir(t *testing.T) {
 	t.Parallel()
 	fs := fstest.MapFS{
-		"lib.sh":                     {Data: []byte("#!/bin/bash\necho lib")},
+		"modules/lib.sh":             {Data: []byte("#!/bin/bash\necho lib")},
 		"modules/shell/install.sh":   {Data: []byte("#!/bin/bash\necho shell")},
 		"modules/docker/daemon.json": {Data: []byte(`{"log-driver":"json-file"}`)},
 	}
@@ -23,8 +23,8 @@ func TestExtract_CreatesFilesInTmpDir(t *testing.T) {
 	}
 	defer cleanup()
 
-	if _, err := os.Stat(filepath.Join(tmpDir, "lib.sh")); err != nil {
-		t.Error("lib.sh not found in tmpdir")
+	if _, err := os.Stat(filepath.Join(tmpDir, "modules", "lib.sh")); err != nil {
+		t.Error("modules/lib.sh not found in tmpdir")
 	}
 	if _, err := os.Stat(filepath.Join(tmpDir, "modules", "shell", "install.sh")); err != nil {
 		t.Error("modules/shell/install.sh not found")
@@ -67,7 +67,7 @@ func TestExtract_ShFilesAreExecutable(t *testing.T) {
 func TestExtract_CleanupRemovesDir(t *testing.T) {
 	t.Parallel()
 	fs := fstest.MapFS{
-		"lib.sh": {Data: []byte("#!/bin/bash")},
+		"modules/lib.sh": {Data: []byte("#!/bin/bash")},
 	}
 
 	tmpDir, cleanup, err := kickembed.Extract(fs)

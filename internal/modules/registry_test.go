@@ -66,12 +66,16 @@ func TestForOS_IncludesAllAndLinuxOnLinux(t *testing.T) {
 	}
 }
 
-func TestNeedsSudo_OnlyApparmor(t *testing.T) {
+func TestNeedsSudo_OnlyApparmorModules(t *testing.T) {
 	t.Parallel()
 	mods := modules.AllModules()
+	allowed := map[string]bool{
+		"apparmor/setup.sh":   true,
+		"apparmor/monitor.sh": true,
+	}
 	for _, m := range mods {
-		if m.NeedsSudo && m.Script != "apparmor/setup.sh" {
-			t.Errorf("only apparmor should have NeedsSudo, got %q", m.ID)
+		if m.NeedsSudo && !allowed[m.Script] {
+			t.Errorf("only apparmor modules should have NeedsSudo, got %q", m.ID)
 		}
 	}
 }
@@ -108,5 +112,21 @@ func TestNeedsUserInfo_ShellGitAndApparmor(t *testing.T) {
 	}
 	if !modules.NeedsUserInfo([]modules.Module{{ID: "apparmor"}}) {
 		t.Error("apparmor should need user info")
+	}
+	if !modules.NeedsUserInfo([]modules.Module{{ID: "apparmor-monitor"}}) {
+		t.Error("apparmor-monitor should need user info")
+	}
+}
+
+func TestNeedsWebhook_ApparmorModules(t *testing.T) {
+	t.Parallel()
+	if modules.NeedsWebhook([]modules.Module{{ID: "docker"}}) {
+		t.Error("docker should not need webhook")
+	}
+	if !modules.NeedsWebhook([]modules.Module{{ID: "apparmor"}}) {
+		t.Error("apparmor should need webhook")
+	}
+	if !modules.NeedsWebhook([]modules.Module{{ID: "apparmor-monitor"}}) {
+		t.Error("apparmor-monitor should need webhook")
 	}
 }

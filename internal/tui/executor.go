@@ -41,11 +41,11 @@ func newExecutorModel(
 ) executorModel {
 	groups := modules.GroupByScript(selected)
 
-	// Skip apparmor if no webhook URL provided
+	// Skip apparmor scripts if no webhook URL provided
 	if webhookURL == "" {
 		filtered := make([]modules.ScriptGroup, 0, len(groups))
 		for _, g := range groups {
-			if g.Script == "apparmor/setup.sh" {
+			if g.Script == "apparmor/setup.sh" || g.Script == "apparmor/monitor.sh" {
 				continue
 			}
 			filtered = append(filtered, g)
@@ -183,9 +183,9 @@ func (m executorModel) runCurrent() tea.Cmd {
 	webhookURL := m.webhookURL
 	prog := m.program
 
-	// Apparmor: webhook URL is passed as first positional arg
+	// Apparmor scripts: webhook URL is passed as first positional arg
 	components := g.Components
-	if g.Script == "apparmor/setup.sh" && webhookURL != "" && modeFlag == "" {
+	if (g.Script == "apparmor/setup.sh" || g.Script == "apparmor/monitor.sh") && webhookURL != "" && modeFlag == "" {
 		components = []string{webhookURL}
 	}
 

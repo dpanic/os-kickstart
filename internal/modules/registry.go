@@ -23,6 +23,7 @@ func AllModules() []Module {
 		{ID: "gnome", Script: "gnome/optimize.sh", Label: "GNOME Optimize", Description: "disable animations, sounds, hot corners", Category: "optimization", OS: "linux", InstalledCmd: "gsettings"},
 		{ID: "nautilus", Script: "nautilus/optimize.sh", Label: "Nautilus Optimize", Description: "restrict Tracker, limit thumbnails", Category: "optimization", OS: "linux", InstalledCmd: "nautilus"},
 		{ID: "apparmor", Script: "apparmor/setup.sh", Label: "AppArmor Setup", Description: "learning mode with Slack reminder", Category: "optimization", OS: "linux", NeedsSudo: true, InstalledCmd: "apparmor_status"},
+		{ID: "apparmor-monitor", Script: "apparmor/monitor.sh", Label: "AppArmor Monitor", Description: "continuous violation alerts via Slack", Category: "optimization", OS: "linux", NeedsSudo: true, InstalledCheck: "/etc/systemd/system/apparmor-monitor.timer"},
 		{ID: "kernel-sysctl", Script: "kernel/optimize.sh", Components: []string{"sysctl"}, Label: "Kernel ▸ sysctl.conf", Description: "network, memory, conntrack tuning", Category: "optimization", OS: "linux", InstalledGrepFile: "/etc/sysctl.conf:bbr"},
 		{ID: "kernel-limits", Script: "kernel/optimize.sh", Components: []string{"limits"}, Label: "Kernel ▸ limits", Description: "file descriptor & process limits", Category: "optimization", OS: "linux", InstalledGrepFile: "/etc/security/limits.conf:2097152"},
 		{ID: "kernel-scheduler", Script: "kernel/optimize.sh", Components: []string{"scheduler"}, Label: "Kernel ▸ I/O scheduler", Description: "none (SSD/NVMe)", Category: "optimization", OS: "linux", InstalledCheck: "/etc/udev/rules.d/60-scheduler.rules"},
@@ -72,7 +73,7 @@ func ForOS(goos string) []Module {
 // NeedsUserInfo returns true if any module in the selection requires the GitInfo screen.
 func NeedsUserInfo(selected []Module) bool {
 	for _, m := range selected {
-		if m.ID == "shell-git" || m.ID == "apparmor" {
+		if m.ID == "shell-git" || m.ID == "apparmor" || m.ID == "apparmor-monitor" {
 			return true
 		}
 	}
@@ -82,7 +83,7 @@ func NeedsUserInfo(selected []Module) bool {
 // NeedsWebhook returns true if apparmor is in the selection.
 func NeedsWebhook(selected []Module) bool {
 	for _, m := range selected {
-		if m.ID == "apparmor" {
+		if m.ID == "apparmor" || m.ID == "apparmor-monitor" {
 			return true
 		}
 	}

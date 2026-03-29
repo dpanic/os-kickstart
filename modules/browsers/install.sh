@@ -10,7 +10,7 @@ set -euo pipefail
 #   ./install-browsers.sh chrome signal  # install only chrome and signal
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 source "$REPO_DIR/lib.sh"
 

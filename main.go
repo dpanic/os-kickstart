@@ -11,7 +11,7 @@ import (
 	"github.com/dpanic/os-kickstart/internal/tui"
 )
 
-//go:embed all:modules lib.sh
+//go:embed all:modules
 var assets embed.FS
 
 var (

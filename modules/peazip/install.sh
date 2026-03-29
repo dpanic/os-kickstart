@@ -7,7 +7,7 @@ set -euo pipefail
 # Safe to re-run -- idempotent
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$REPO_DIR/lib.sh"
 
 parse_update_flag "$@"
