@@ -342,9 +342,10 @@ systemctl enable --now apparmor-monitor.timer
 echo "  done."
 
 echo "[4/5] Sending test message to Slack..."
-ACTIVATE_MSG=":white_check_mark: **AppArmor monitor activated on \`$(hostname)\`**"
+ACTIVATE_MSG=":white_check_mark: **AppArmor monitor activated**"
 ACTIVATE_MSG+=$'\n\n'"| Setting | Value |"
 ACTIVATE_MSG+=$'\n'"| --- | --- |"
+ACTIVATE_MSG+=$'\n'"| Hostname | \`$(hostname)\` |"
 ACTIVATE_MSG+=$'\n'"| Interval | every ${CHECK_INTERVAL} |"
 ACTIVATE_MSG+=$'\n'"| Alerts | DENIED, ALLOWED, tamper, service down |"
 ACTIVATE_MSG+=$'\n'"| Rate limit | max 1 alert per 5 min |"
