@@ -189,16 +189,15 @@ check_violations() {
         allowed_count=$(echo "$allowed_lines" | wc -l)
     fi
 
-    if [[ $denied_count -eq 0 && $allowed_count -eq 0 ]]; then
+    if [[ $denied_count -eq 0 ]]; then
+        if [[ $allowed_count -gt 0 ]]; then
+            logger "apparmor-monitor: ${allowed_count} ALLOWED events (complain mode), no alert needed"
+        fi
         return 0
     fi
 
-    local severity_icon=":warning:"
-    local severity_label="WARNING"
-    if [[ $denied_count -gt 0 ]]; then
-        severity_icon=":rotating_light:"
-        severity_label="CRITICAL"
-    fi
+    local severity_icon=":rotating_light:"
+    local severity_label="CRITICAL"
 
     local msg
     msg="${severity_icon} **AppArmor ${severity_label} on \`${HOSTNAME}\`**"
@@ -208,15 +207,13 @@ check_violations() {
     msg+=$'\n'"| ALLOWED | ${allowed_count} |"
     msg+=$'\n'"| Period | since ${since_date} |"
 
-    if [[ $denied_count -gt 0 ]]; then
-        msg+=$'\n\n'"**DENIED — top profiles:**"
-        msg+=$'\n\n'"| Profile | Count |"
-        msg+=$'\n'"| --- | --- |"
-        msg+=$(echo "$denied_lines" \
-            | grep -oP 'profile="\K[^"]+' \
-            | sort | uniq -c | sort -rn | head -5 \
-            | awk '{printf "\n| `%s` | %d |", $2, $1}')
-    fi
+    msg+=$'\n\n'"**DENIED — top profiles:**"
+    msg+=$'\n\n'"| Profile | Count |"
+    msg+=$'\n'"| --- | --- |"
+    msg+=$(echo "$denied_lines" \
+        | grep -oP 'profile="\K[^"]+' \
+        | sort | uniq -c | sort -rn | head -5 \
+        | awk '{printf "\n| `%s` | %d |", $2, $1}')
 
     if [[ $allowed_count -gt 0 ]]; then
         msg+=$'\n\n'"**ALLOWED — top profiles:**"
@@ -374,6 +371,7 @@ echo "  Manual:  sudo $MONITOR_SCRIPT"
 echo ""
 echo "Checks run every ${CHECK_INTERVAL}. Alerts sent to Slack when:"
 echo "  - DENIED events detected (enforce mode blocks)"
-echo "  - ALLOWED violations logged (complain mode would-be blocks)"
 echo "  - Profile state changes (possible tampering)"
 echo "  - AppArmor service goes down"
+echo ""
+echo "ALLOWED events (complain mode) are logged but don't trigger alerts."
