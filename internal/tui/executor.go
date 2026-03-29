@@ -72,6 +72,10 @@ func newExecutorModel(
 }
 
 func (m executorModel) Init() tea.Cmd {
+	if len(m.groups) == 0 {
+		m.done = true
+		return func() tea.Msg { return allDoneMsg{} }
+	}
 	return tea.Batch(m.spinner.Tick, m.runCurrent())
 }
 
@@ -163,7 +167,10 @@ func (m executorModel) View() string {
 
 	// Progress bar
 	total := len(m.groups)
-	pct := float64(m.current) / float64(total)
+	pct := 0.0
+	if total > 0 {
+		pct = float64(m.current) / float64(total)
+	}
 	b.WriteString("\n  " + m.progress.ViewAs(pct))
 	b.WriteString(MutedStyle.Render(fmt.Sprintf("  %d/%d", m.current, total)))
 
@@ -185,7 +192,7 @@ func (m executorModel) runCurrent() tea.Cmd {
 
 	// Apparmor scripts: webhook URL is passed as first positional arg
 	components := g.Components
-	if (g.Script == "apparmor/setup.sh" || g.Script == "apparmor/monitor.sh") && webhookURL != "" && modeFlag == "" {
+	if (g.Script == "apparmor/setup.sh" || g.Script == "apparmor/monitor.sh") && webhookURL != "" {
 		components = []string{webhookURL}
 	}
 

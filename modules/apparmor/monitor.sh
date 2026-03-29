@@ -24,32 +24,44 @@ SERVICE_PATH="/etc/systemd/system/apparmor-monitor.service"
 TIMER_PATH="/etc/systemd/system/apparmor-monitor.timer"
 CHECK_INTERVAL="15min"
 
-# Handle --uninstall flag (before webhook check)
+# Parse flags and positional args
+WEBHOOK_URL=""
+MODE=""
 for arg in "$@"; do
-    if [[ "$arg" == "--uninstall" ]]; then
-        echo "=== AppArmor Monitor -- Remove ==="
-        echo ""
-        echo "[1/3] Stopping and disabling timer..."
-        systemctl disable apparmor-monitor.timer 2>/dev/null || true
-        systemctl stop apparmor-monitor.timer 2>/dev/null || true
-        echo "  done."
-
-        echo "[2/3] Removing files..."
-        rm -f "$SERVICE_PATH" "$TIMER_PATH" "$MONITOR_SCRIPT"
-        rm -rf "$STATE_DIR"
-        systemctl daemon-reload
-        echo "  done."
-
-        echo "[3/3] Status..."
-        echo "  Timer removed, monitoring disabled."
-
-        echo ""
-        echo "=== AppArmor Monitor removal complete ==="
-        exit 0
-    fi
+    case "$arg" in
+        --uninstall) MODE="uninstall" ;;
+        --update)    MODE="update" ;;
+        *)           WEBHOOK_URL="$arg" ;;
+    esac
 done
 
-WEBHOOK_URL="${1:-}"
+# Handle --uninstall
+if [[ "$MODE" == "uninstall" ]]; then
+    echo "=== AppArmor Monitor -- Remove ==="
+    echo ""
+    echo "[1/3] Stopping and disabling timer..."
+    systemctl disable apparmor-monitor.timer 2>/dev/null || true
+    systemctl stop apparmor-monitor.timer 2>/dev/null || true
+    echo "  done."
+
+    echo "[2/3] Removing files..."
+    rm -f "$SERVICE_PATH" "$TIMER_PATH" "$MONITOR_SCRIPT"
+    rm -rf "$STATE_DIR"
+    systemctl daemon-reload
+    echo "  done."
+
+    echo "[3/3] Status..."
+    echo "  Timer removed, monitoring disabled."
+
+    echo ""
+    echo "=== AppArmor Monitor removal complete ==="
+    exit 0
+fi
+
+# On update without webhook arg, read it from the existing installed script
+if [[ -z "$WEBHOOK_URL" && -f "$MONITOR_SCRIPT" ]]; then
+    WEBHOOK_URL=$(grep -oP '^WEBHOOK_URL="\K[^"]+' "$MONITOR_SCRIPT" 2>/dev/null || true)
+fi
 
 if [[ -z "$WEBHOOK_URL" ]]; then
     echo "Error: Slack webhook URL is required."
@@ -112,17 +124,13 @@ send_slack() {
         return 0
     fi
 
+    local payload
+    payload=$(printf '{"username":"AppArmor Monitor","icon_emoji":":shield:","text":"%s"}' "$text")
+
     local http_code
     http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$WEBHOOK_URL" \
         -H 'Content-Type: application/json' \
-        -d @- <<PAYLOAD
-{
-  "username": "AppArmor Monitor",
-  "icon_emoji": ":rotating_light:",
-  "text": ${text}
-}
-PAYLOAD
-    )
+        -d "$payload")
 
     if [[ "$http_code" == "200" ]]; then
         echo "$now" > "$STATE_DIR/last-alert"
@@ -132,22 +140,32 @@ PAYLOAD
     fi
 }
 
+# Build a JSON-safe string: real newlines become \n, quotes and backslashes escaped.
+# Uses printf %b to interpret escape sequences, then converts real newlines for JSON.
 json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\t'/    }"
-    printf '%s' "$s"
+    local raw="$1"
+    raw="${raw//\\/\\\\}"
+    raw="${raw//\"/\\\"}"
+    raw="${raw//$'\n'/\\n}"
+    printf '%s' "$raw"
 }
+
+# Build a markdown table row: | col1 | col2 | ...
+table_row() { printf '| %s ' "$@"; printf '|'; }
 
 # ── 1. Check AppArmor service health ────────────────────────────────────────
 
 check_health() {
     if ! systemctl is-active apparmor &>/dev/null; then
         local msg
-        msg=$(json_escape ":red_circle: *AppArmor service is DOWN on \`${HOSTNAME}\`*\n\nThe AppArmor service is not running. This means *no profiles are being enforced*.\n\n\`\`\`\nsudo systemctl start apparmor\nsudo systemctl status apparmor\n\`\`\`")
-        send_slack "\"$msg\""
+        msg=$(printf '%s\n\n%s\n%s\n\n%s\n%s\n%s' \
+            ":red_circle: **AppArmor service is DOWN on \`${HOSTNAME}\`**" \
+            "The AppArmor service is not running." \
+            "**No profiles are being enforced.**" \
+            "| Action | Command |" \
+            "|:--|:--|" \
+            "| Start service | \`sudo systemctl start apparmor\` |")
+        send_slack "$(json_escape "$msg")"
         return 1
     fi
     return 0
@@ -179,36 +197,39 @@ check_violations() {
         return 0
     fi
 
-    local details=""
-
-    if [[ $denied_count -gt 0 ]]; then
-        local top_denied
-        top_denied=$(echo "$denied_lines" \
-            | grep -oP 'profile="\K[^"]+' \
-            | sort | uniq -c | sort -rn | head -5 \
-            | awk '{printf "  %s (%d times)\\n", $2, $1}' || true)
-        details="${details}*DENIED profiles (top 5):*\n\`\`\`\n${top_denied}\n\`\`\`\n"
-    fi
-
-    if [[ $allowed_count -gt 0 ]]; then
-        local top_allowed
-        top_allowed=$(echo "$allowed_lines" \
-            | grep -oP 'profile="\K[^"]+' \
-            | sort | uniq -c | sort -rn | head -5 \
-            | awk '{printf "  %s (%d times)\\n", $2, $1}' || true)
-        details="${details}*ALLOWED violations (top 5):*\n\`\`\`\n${top_allowed}\n\`\`\`\n"
-    fi
-
     local severity_icon=":warning:"
-    local severity_word="WARNING"
+    local severity_label="WARNING"
     if [[ $denied_count -gt 0 ]]; then
         severity_icon=":rotating_light:"
-        severity_word="CRITICAL"
+        severity_label="CRITICAL"
     fi
 
     local msg
-    msg=$(json_escape "${severity_icon} *AppArmor ${severity_word}: violations detected on \`${HOSTNAME}\`*\n\n*DENIED:* ${denied_count}  |  *ALLOWED:* ${allowed_count}\n*Period:* since ${since_date}\n\n${details}\n*Investigate:*\n\`\`\`\nsudo journalctl -t kernel | grep apparmor | tail -30\nsudo aa-status\n\`\`\`")
-    send_slack "\"$msg\""
+    msg=$(printf '%s **AppArmor %s on \`%s\`**\n' "$severity_icon" "$severity_label" "$HOSTNAME")
+    msg+=$(printf '\n| Metric | Count |\n|:--|--:|\n| DENIED | **%d** |\n| ALLOWED | %d |\n| Period | since %s |\n' \
+        "$denied_count" "$allowed_count" "$since_date")
+
+    if [[ $denied_count -gt 0 ]]; then
+        msg+=$(printf '\n**DENIED — top profiles:**\n\n| Profile | Count |\n|:--|--:|\n')
+        msg+=$(echo "$denied_lines" \
+            | grep -oP 'profile="\K[^"]+' \
+            | sort | uniq -c | sort -rn | head -5 \
+            | awk '{printf "| `%s` | %d |\n", $2, $1}')
+        msg+=$'\n'
+    fi
+
+    if [[ $allowed_count -gt 0 ]]; then
+        msg+=$(printf '\n**ALLOWED — top profiles:**\n\n| Profile | Count |\n|:--|--:|\n')
+        msg+=$(echo "$allowed_lines" \
+            | grep -oP 'profile="\K[^"]+' \
+            | sort | uniq -c | sort -rn | head -5 \
+            | awk '{printf "| `%s` | %d |\n", $2, $1}')
+        msg+=$'\n'
+    fi
+
+    msg+=$(printf '\n---\n**Investigate:**\n```\nsudo journalctl -t kernel | grep apparmor | tail -30\nsudo aa-status\n```')
+
+    send_slack "$(json_escape "$msg")"
 }
 
 # ── 3. Check for profile tampering ──────────────────────────────────────────
@@ -248,9 +269,18 @@ print(len(d.get('profiles', {}).get('complain', {})))
         return 0
     fi
 
+    local enforce_diff=$(( current_enforce - baseline_enforce ))
+    local complain_diff=$(( current_complain - baseline_complain ))
+
     local msg
-    msg=$(json_escape ":warning: *AppArmor: profile state changed on \`${HOSTNAME}\`*\n\n*Baseline:* enforce=${baseline_enforce}, complain=${baseline_complain}\n*Current:*  enforce=${current_enforce}, complain=${current_complain}\n\nProfiles may have been switched from enforce to complain or removed entirely. This could indicate tampering.\n\n*Investigate:*\n\`\`\`\nsudo aa-status\n\`\`\`")
-    send_slack "\"$msg\""
+    msg=$(printf ':warning: **AppArmor: profile state changed on `%s`**\n' "$HOSTNAME")
+    msg+=$(printf '\n| Mode | Baseline | Current | Delta |\n|:--|--:|--:|--:|\n')
+    msg+=$(printf '| Enforce | %s | %s | %+d |\n' "$baseline_enforce" "$current_enforce" "$enforce_diff")
+    msg+=$(printf '| Complain | %s | %s | %+d |\n' "$baseline_complain" "$current_complain" "$complain_diff")
+    msg+=$(printf '\n:warning: Profiles may have been switched or removed. **Possible tampering.**\n')
+    msg+=$(printf '\n---\n**Investigate:**\n```\nsudo aa-status\n```')
+
+    send_slack "$(json_escape "$msg")"
 
     # Update baseline after alerting to avoid repeat alerts
     aa-status --json 2>/dev/null > "$STATE_DIR/baseline.json" || \
@@ -301,9 +331,12 @@ systemctl enable --now apparmor-monitor.timer
 echo "  done."
 
 echo "[4/5] Sending test message to Slack..."
+ACTIVATE_MSG=$(printf ':white_check_mark: **AppArmor monitor activated on `%s`**\n\n| Setting | Value |\n|:--|:--|\n| Interval | every %s |\n| Alerts | DENIED, ALLOWED, tamper, service down |\n| Rate limit | max 1 alert per 5 min |' \
+  "$(hostname)" "${CHECK_INTERVAL}")
+ACTIVATE_JSON=$(printf '%s' "$ACTIVATE_MSG" | sed 's/\\/\\\\/g; s/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$WEBHOOK_URL" \
   -H 'Content-Type: application/json' \
-  -d "{\"username\": \"AppArmor Monitor\", \"icon_emoji\": \":shield:\", \"text\": \":white_check_mark: *AppArmor monitor activated on \`$(hostname)\`.*\nChecking every ${CHECK_INTERVAL} for violations and profile changes.\"}")
+  -d "{\"username\":\"AppArmor Monitor\",\"icon_emoji\":\":shield:\",\"text\":\"${ACTIVATE_JSON}\"}")
 
 if [[ "$HTTP_CODE" == "200" ]]; then
     echo "  webhook test: OK (HTTP $HTTP_CODE)"

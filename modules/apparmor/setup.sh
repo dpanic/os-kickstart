@@ -18,38 +18,49 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# Handle --uninstall flag (before webhook check)
+# Parse flags and positional args
+WEBHOOK_URL=""
+MODE=""
 for arg in "$@"; do
-    if [[ "$arg" == "--uninstall" ]]; then
-        echo "=== AppArmor -- Revert ==="
-        echo ""
-        echo "[1/3] Switching all profiles back to enforce mode..."
-        aa-enforce /etc/apparmor.d/* 2>&1 | tail -5 || true
-        echo "  done."
-
-        echo "[2/3] Removing reminder script and timer..."
-        systemctl disable apparmor-enforce.timer 2>/dev/null || true
-        systemctl stop apparmor-enforce.timer 2>/dev/null || true
-        rm -f /etc/systemd/system/apparmor-enforce.service
-        rm -f /etc/systemd/system/apparmor-enforce.timer
-        rm -f /usr/local/bin/apparmor-remind.sh
-        systemctl daemon-reload
-        echo "  done."
-
-        echo "[3/3] Status..."
-        aa-status 2>/dev/null | head -10 || true
-
-        echo ""
-        echo "=== AppArmor revert complete ==="
-        exit 0
-    fi
+    case "$arg" in
+        --uninstall) MODE="uninstall" ;;
+        --update)    MODE="update" ;;
+        *)           WEBHOOK_URL="$arg" ;;
+    esac
 done
 
-WEBHOOK_URL="${1:-}"
 LEARNING_DAYS=7
 SCRIPT_PATH="/usr/local/bin/apparmor-remind.sh"
 SERVICE_PATH="/etc/systemd/system/apparmor-enforce.service"
 TIMER_PATH="/etc/systemd/system/apparmor-enforce.timer"
+
+# Handle --uninstall
+if [[ "$MODE" == "uninstall" ]]; then
+    echo "=== AppArmor -- Revert ==="
+    echo ""
+    echo "[1/3] Switching all profiles back to enforce mode..."
+    aa-enforce /etc/apparmor.d/* 2>&1 | tail -5 || true
+    echo "  done."
+
+    echo "[2/3] Removing reminder script and timer..."
+    systemctl disable apparmor-enforce.timer 2>/dev/null || true
+    systemctl stop apparmor-enforce.timer 2>/dev/null || true
+    rm -f "$SERVICE_PATH" "$TIMER_PATH" "$SCRIPT_PATH"
+    systemctl daemon-reload
+    echo "  done."
+
+    echo "[3/3] Status..."
+    aa-status 2>/dev/null | head -10 || true
+
+    echo ""
+    echo "=== AppArmor revert complete ==="
+    exit 0
+fi
+
+# On update without webhook arg, read it from the existing installed script
+if [[ -z "$WEBHOOK_URL" && -f "$SCRIPT_PATH" ]]; then
+    WEBHOOK_URL=$(grep -oP '^WEBHOOK_URL="\K[^"]+' "$SCRIPT_PATH" 2>/dev/null || true)
+fi
 
 if [[ -z "$WEBHOOK_URL" ]]; then
     echo "Error: Slack webhook URL is required."
