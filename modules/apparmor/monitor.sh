@@ -249,24 +249,45 @@ check_tamper() {
 
     local current_enforce current_complain baseline_enforce baseline_complain
 
+    # aa-status --json uses a flat dict: {"profiles": {"name": "mode", ...}}
     if [[ "$baseline_file" == *.json ]] && command -v python3 &>/dev/null; then
         baseline_enforce=$(python3 -c "
-import json, sys
+import json
 d = json.load(open('$baseline_file'))
-print(len(d.get('profiles', {}).get('enforce', {})))
+print(sum(1 for v in d.get('profiles', {}).values() if v == 'enforce'))
 " 2>/dev/null || echo "?")
         baseline_complain=$(python3 -c "
-import json, sys
+import json
 d = json.load(open('$baseline_file'))
-print(len(d.get('profiles', {}).get('complain', {})))
+print(sum(1 for v in d.get('profiles', {}).values() if v == 'complain'))
 " 2>/dev/null || echo "?")
     else
         baseline_enforce=$(grep -c "enforce" "$baseline_file" 2>/dev/null || echo "0")
         baseline_complain=$(grep -c "complain" "$baseline_file" 2>/dev/null || echo "0")
     fi
 
-    current_enforce=$(aa-status 2>/dev/null | grep -c "enforce" || echo "0")
-    current_complain=$(aa-status 2>/dev/null | grep -c "complain" || echo "0")
+    if command -v python3 &>/dev/null; then
+        local current_json
+        current_json=$(aa-status --json 2>/dev/null || true)
+        if [[ -n "$current_json" ]]; then
+            current_enforce=$(echo "$current_json" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(sum(1 for v in d.get('profiles', {}).values() if v == 'enforce'))
+" 2>/dev/null || echo "0")
+            current_complain=$(echo "$current_json" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(sum(1 for v in d.get('profiles', {}).values() if v == 'complain'))
+" 2>/dev/null || echo "0")
+        else
+            current_enforce=$(aa-status 2>/dev/null | grep -c "profiles are in enforce" || echo "0")
+            current_complain=$(aa-status 2>/dev/null | grep -c "profiles are in complain" || echo "0")
+        fi
+    else
+        current_enforce=$(aa-status 2>/dev/null | grep -c "profiles are in enforce" || echo "0")
+        current_complain=$(aa-status 2>/dev/null | grep -c "profiles are in complain" || echo "0")
+    fi
 
     if [[ "$current_enforce" == "$baseline_enforce" && "$current_complain" == "$baseline_complain" ]]; then
         return 0
