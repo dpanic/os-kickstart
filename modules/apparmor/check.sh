@@ -181,62 +181,135 @@ check_tamper() {
         return 0
     fi
 
-    local current_enforce current_complain baseline_enforce baseline_complain
-
-    # aa-status --json: {"profiles": {"name": "mode", ...}}
-    if [[ "$baseline_file" == *.json ]] && command -v python3 &>/dev/null; then
-        baseline_enforce=$(python3 -c "
-import json
-d = json.load(open('$baseline_file'))
-print(sum(1 for v in d.get('profiles', {}).values() if v == 'enforce'))
-" 2>/dev/null || echo "?")
-        baseline_complain=$(python3 -c "
-import json
-d = json.load(open('$baseline_file'))
-print(sum(1 for v in d.get('profiles', {}).values() if v == 'complain'))
-" 2>/dev/null || echo "?")
-    else
-        baseline_enforce=$(grep -c "enforce" "$baseline_file" 2>/dev/null || echo "0")
-        baseline_complain=$(grep -c "complain" "$baseline_file" 2>/dev/null || echo "0")
-    fi
-
-    if command -v python3 &>/dev/null; then
-        local current_json
-        current_json=$(aa-status --json 2>/dev/null || true)
-        if [[ -n "$current_json" ]]; then
-            current_enforce=$(echo "$current_json" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-print(sum(1 for v in d.get('profiles', {}).values() if v == 'enforce'))
-" 2>/dev/null || echo "0")
-            current_complain=$(echo "$current_json" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-print(sum(1 for v in d.get('profiles', {}).values() if v == 'complain'))
-" 2>/dev/null || echo "0")
-        else
-            current_enforce=$(aa-status 2>/dev/null | grep -c "profiles are in enforce" || echo "0")
-            current_complain=$(aa-status 2>/dev/null | grep -c "profiles are in complain" || echo "0")
-        fi
-    else
-        current_enforce=$(aa-status 2>/dev/null | grep -c "profiles are in enforce" || echo "0")
-        current_complain=$(aa-status 2>/dev/null | grep -c "profiles are in complain" || echo "0")
-    fi
-
-    if [[ "$current_enforce" == "$baseline_enforce" && "$current_complain" == "$baseline_complain" ]]; then
+    if [[ "$baseline_file" != *.json ]] || ! command -v python3 &>/dev/null; then
+        logger "apparmor-monitor: tamper check requires baseline.json + python3, skipping"
         return 0
     fi
 
-    local enforce_diff=$(( current_enforce - baseline_enforce ))
-    local complain_diff=$(( current_complain - baseline_complain ))
+    local current_json
+    current_json=$(aa-status --json 2>/dev/null || true)
+    if [[ -z "$current_json" ]]; then
+        logger "apparmor-monitor: aa-status --json failed, skipping tamper check"
+        return 0
+    fi
+
+    local diff_output
+    diff_output=$(echo "$current_json" | python3 -c "
+import json, sys
+
+baseline = json.load(open('$baseline_file'))
+current = json.load(sys.stdin)
+
+bp = baseline.get('profiles', {})
+cp = current.get('profiles', {})
+
+b_enforce = {k for k, v in bp.items() if v == 'enforce'}
+b_complain = {k for k, v in bp.items() if v == 'complain'}
+c_enforce = {k for k, v in cp.items() if v == 'enforce'}
+c_complain = {k for k, v in cp.items() if v == 'complain'}
+
+added_enforce = sorted(c_enforce - b_enforce)
+removed_enforce = sorted(b_enforce - c_enforce)
+added_complain = sorted(c_complain - b_complain)
+removed_complain = sorted(b_complain - c_complain)
+
+switched_to_complain = sorted(b_enforce & c_complain)
+switched_to_enforce = sorted(b_complain & c_enforce)
+
+changed = (added_enforce or removed_enforce or added_complain or removed_complain
+           or switched_to_complain or switched_to_enforce)
+
+print('CHANGED' if changed else 'OK')
+print(f'{len(b_enforce)}|{len(c_enforce)}|{len(b_complain)}|{len(c_complain)}')
+
+for p in added_enforce:
+    print(f'+enforce|{p}')
+for p in removed_enforce:
+    print(f'-enforce|{p}')
+for p in added_complain:
+    print(f'+complain|{p}')
+for p in removed_complain:
+    print(f'-complain|{p}')
+for p in switched_to_complain:
+    print(f'enforce>complain|{p}')
+for p in switched_to_enforce:
+    print(f'complain>enforce|{p}')
+" 2>/dev/null || echo "ERROR")
+
+    if [[ "$diff_output" == "ERROR" ]]; then
+        logger "apparmor-monitor: python3 profile diff failed"
+        return 0
+    fi
+
+    local status_line counts_line
+    status_line=$(echo "$diff_output" | head -1)
+    counts_line=$(echo "$diff_output" | sed -n '2p')
+
+    if [[ "$status_line" == "OK" ]]; then
+        return 0
+    fi
+
+    IFS='|' read -r b_enf c_enf b_comp c_comp <<< "$counts_line"
+    local enforce_diff=$(( c_enf - b_enf ))
+    local complain_diff=$(( c_comp - b_comp ))
 
     local msg
     msg=":warning: **AppArmor: profile state changed on \`${HOSTNAME}\`**"
     msg+=$'\n\n'"| Mode | Baseline | Current | Delta |"
     msg+=$'\n'"| --- | --- | --- | --- |"
-    msg+=$'\n'"| Enforce | ${baseline_enforce} | ${current_enforce} | ${enforce_diff} |"
-    msg+=$'\n'"| Complain | ${baseline_complain} | ${current_complain} | ${complain_diff} |"
-    msg+=$'\n\n'":warning: Profiles may have been switched or removed. **Possible tampering.**"
+    msg+=$'\n'"| Enforce | ${b_enf} | ${c_enf} | ${enforce_diff} |"
+    msg+=$'\n'"| Complain | ${b_comp} | ${c_comp} | ${complain_diff} |"
+
+    local diff_lines
+    diff_lines=$(echo "$diff_output" | tail -n +3)
+
+    local section_added="" section_removed="" section_switched=""
+
+    while IFS='|' read -r change_type profile_name; do
+        [[ -z "$change_type" ]] && continue
+        case "$change_type" in
+            +enforce)
+                section_added+=$'\n'"| \`${profile_name}\` | enforce | :new: added |"
+                ;;
+            +complain)
+                section_added+=$'\n'"| \`${profile_name}\` | complain | :new: added |"
+                ;;
+            -enforce)
+                section_removed+=$'\n'"| \`${profile_name}\` | enforce | :x: removed |"
+                ;;
+            -complain)
+                section_removed+=$'\n'"| \`${profile_name}\` | complain | :x: removed |"
+                ;;
+            enforce\>complain)
+                section_switched+=$'\n'"| \`${profile_name}\` | enforce :arrow_right: complain | :warning: weakened |"
+                ;;
+            complain\>enforce)
+                section_switched+=$'\n'"| \`${profile_name}\` | complain :arrow_right: enforce | :white_check_mark: hardened |"
+                ;;
+        esac
+    done <<< "$diff_lines"
+
+    if [[ -n "$section_switched" ]]; then
+        msg+=$'\n\n'":warning: **Mode switches** (possible tampering):"
+        msg+=$'\n\n'"| Profile | Change | Status |"
+        msg+=$'\n'"| --- | --- | --- |"
+        msg+="$section_switched"
+    fi
+
+    if [[ -n "$section_added" ]]; then
+        msg+=$'\n\n'":new: **New profiles:**"
+        msg+=$'\n\n'"| Profile | Mode | Status |"
+        msg+=$'\n'"| --- | --- | --- |"
+        msg+="$section_added"
+    fi
+
+    if [[ -n "$section_removed" ]]; then
+        msg+=$'\n\n'":x: **Removed profiles:**"
+        msg+=$'\n\n'"| Profile | Mode | Status |"
+        msg+=$'\n'"| --- | --- | --- |"
+        msg+="$section_removed"
+    fi
+
     msg+=$'\n\n'"---"
     msg+=$'\n'"**Investigate:**"
     msg+=$'\n'"\`\`\`"
@@ -245,8 +318,7 @@ print(sum(1 for v in d.get('profiles', {}).values() if v == 'complain'))
 
     send_webhook "$(json_escape "$msg")"
 
-    aa-status --json 2>/dev/null > "$STATE_DIR/baseline.json" || \
-        aa-status 2>/dev/null > "$STATE_DIR/baseline.txt" || true
+    echo "$current_json" > "$STATE_DIR/baseline.json"
 }
 
 # ── Main ────────────────────────────────────────────────────────────────────
