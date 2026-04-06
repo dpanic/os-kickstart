@@ -287,8 +287,11 @@ if want "nvm"; then
         install "installing nvm"
         LATEST_NVM=$(curl -fsSI https://github.com/nvm-sh/nvm/releases/latest 2>/dev/null \
             | grep -i '^location:' | sed 's|.*/||' | tr -d '\r\n')
-        NVM_PROFILE=${SHELL:-/bin/bash}; want "zsh" && NVM_PROFILE=/dev/null
-        curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM}/install.sh" | PROFILE="$NVM_PROFILE" bash
+        if want "zsh"; then
+            curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM}/install.sh" | PROFILE=/dev/null bash
+        else
+            curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM}/install.sh" | bash
+        fi
     fi
 fi
 

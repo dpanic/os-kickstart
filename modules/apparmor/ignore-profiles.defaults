@@ -2,3 +2,4 @@
 # These are merged into /var/lib/apparmor-monitor/ignore-profiles on install/update.
 # Add your own entries directly to the installed file -- they won't be removed.
 snap.firmware-updater.firmware-notifier
+snap.snapd-desktop-integration.snapd-desktop-integration

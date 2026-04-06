@@ -77,6 +77,9 @@ json_escape() {
     printf '%s' "$raw"
 }
 
+# head replacement that doesn't cause SIGPIPE in pipefail pipelines
+first_n() { awk -v n="${1:-5}" 'NR<=n'; }
+
 # ── 1. Check AppArmor service health ────────────────────────────────────────
 
 check_health() {
@@ -102,11 +105,14 @@ check_violations() {
     local since_date
     since_date=$(date -d "@${since_ts}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date '+%Y-%m-%d %H:%M:%S')
 
-    local denied_lines allowed_lines
+    local denied_lines
     denied_lines=$(journalctl -t kernel --since "$since_date" --no-pager 2>/dev/null \
         | grep 'apparmor="DENIED"' || true)
-    allowed_lines=$(journalctl -t kernel --since "$since_date" --no-pager 2>/dev/null \
-        | grep 'apparmor="ALLOWED"' || true)
+
+    # Only count ALLOWED events -- don't store all lines (can be millions)
+    local allowed_count=0
+    allowed_count=$(journalctl -t kernel --since "$since_date" --no-pager 2>/dev/null \
+        | grep -c 'apparmor="ALLOWED"' || true)
 
     if [[ -n "$denied_lines" && -f "$IGNORE_FILE" ]]; then
         while IFS= read -r profile; do
@@ -115,12 +121,9 @@ check_violations() {
         done < "$IGNORE_FILE"
     fi
 
-    local denied_count=0 allowed_count=0
+    local denied_count=0
     if [[ -n "$denied_lines" ]]; then
         denied_count=$(echo "$denied_lines" | wc -l)
-    fi
-    if [[ -n "$allowed_lines" ]]; then
-        allowed_count=$(echo "$allowed_lines" | wc -l)
     fi
 
     if [[ $denied_count -eq 0 ]]; then
@@ -146,17 +149,18 @@ check_violations() {
     msg+=$'\n'"| --- | --- |"
     msg+=$(echo "$denied_lines" \
         | grep -oP 'profile="\K[^"]+' \
-        | sort | uniq -c | sort -rn | head -5 \
+        | sort | uniq -c | sort -rn | first_n 5 \
         | awk '{printf "\n| `%s` | %d |", $2, $1}')
 
     if [[ $allowed_count -gt 0 ]]; then
-        msg+=$'\n\n'"**ALLOWED — top profiles:**"
+        msg+=$'\n\n'"**ALLOWED — top profiles (sampled):**"
         msg+=$'\n\n'"| Profile | Count |"
         msg+=$'\n'"| --- | --- |"
-        msg+=$(echo "$allowed_lines" \
+        msg+=$(journalctl -t kernel --since "$since_date" --no-pager 2>/dev/null \
+            | grep 'apparmor="ALLOWED"' \
             | grep -oP 'profile="\K[^"]+' \
-            | sort | uniq -c | sort -rn | head -5 \
-            | awk '{printf "\n| `%s` | %d |", $2, $1}')
+            | sort | uniq -c | sort -rn | first_n 5 \
+            | awk '{printf "\n| `%s` | %d |", $2, $1}' || true)
     fi
 
     msg+=$'\n\n'"---"
@@ -242,7 +246,7 @@ for p in switched_to_enforce:
     fi
 
     local status_line counts_line
-    status_line=$(echo "$diff_output" | head -1)
+    status_line=$(echo "$diff_output" | first_n 1)
     counts_line=$(echo "$diff_output" | sed -n '2p')
 
     if [[ "$status_line" == "OK" ]]; then
