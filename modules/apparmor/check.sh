@@ -80,6 +80,33 @@ json_escape() {
 # head replacement that doesn't cause SIGPIPE in pipefail pipelines
 first_n() { awk -v n="${1:-5}" 'NR<=n'; }
 
+# Filter out ignored profile names from stdin (one name per line).
+# Reads glob patterns from IGNORE_FILE; exact entries use string match,
+# patterns with * use awk regex conversion.
+filter_ignored_profiles() {
+    [[ ! -f "$IGNORE_FILE" ]] && cat && return
+    awk '
+        NR==FNR {
+            if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^#/) next
+            pats[NR] = $0
+            next
+        }
+        {
+            dominated = 0
+            for (i in pats) {
+                p = pats[i]
+                if (index(p, "*") > 0) {
+                    r = p; gsub(/\./, "\\.", r); gsub(/\*/, ".*", r)
+                    if ($0 ~ "^"r"$") { dominated = 1; break }
+                } else {
+                    if ($0 == p) { dominated = 1; break }
+                }
+            }
+            if (!dominated) print
+        }
+    ' "$IGNORE_FILE" -
+}
+
 # ── 1. Check AppArmor service health ────────────────────────────────────────
 
 check_health() {
@@ -171,6 +198,7 @@ check_violations() {
         msg+=$(journalctl -t kernel --since "$since_date" --no-pager 2>/dev/null \
             | grep 'apparmor="ALLOWED"' \
             | grep -oP 'profile="\K[^"]+' \
+            | filter_ignored_profiles \
             | sort | uniq -c | sort -rn | first_n 5 \
             | awk '{printf "\n| `%s` | %d |", $2, $1}' || true)
     fi
