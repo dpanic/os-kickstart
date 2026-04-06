@@ -4,4 +4,5 @@
 # Add your own entries directly to the installed file -- they won't be removed.
 snap.firmware-updater.firmware-notifier
 snap.snapd-desktop-integration.snapd-desktop-integration
+snap.telegram-desktop.telegram-desktop
 *anthropic.claude-code-*
