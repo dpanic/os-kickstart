@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Install shell tooling: zsh, oh-my-zsh, fzf, starship, direnv, plugins, nvm, byobu, git
+# Install shell tooling: zsh, oh-my-zsh, fzf, starship, direnv, plugins, nvm, fnm, byobu, git
 # Author: Dusan Panic <dpanic@gmail.com>
 # Replicates a full zsh dev environment from scratch
 # Safe to re-run -- idempotent (skips already-installed components)
@@ -15,7 +15,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 source "$REPO_DIR/lib.sh"
 
-ALL_COMPONENTS=(zsh fzf starship direnv plugins nvm byobu git)
+ALL_COMPONENTS=(zsh fzf starship direnv plugins nvm fnm byobu git)
 parse_update_flag "$@"
 COMPONENTS=("${_CLEAN_ARGS[@]}")
 if [[ ${#COMPONENTS[@]} -eq 0 ]]; then
@@ -62,6 +62,18 @@ if [[ "$UNINSTALL" == true ]]; then
             rm -rf "$HOME/.nvm"
         else
             skip "nvm not installed"
+        fi
+    fi
+
+    if want "fnm"; then
+        echo "[REMOVE] fnm..."
+        if command -v fnm &>/dev/null; then
+            remove "removing fnm"
+            if is_macos; then brew uninstall fnm 2>/dev/null || true
+            else rm -f "$(command -v fnm)"; fi
+            rm -rf "$HOME/.local/share/fnm" "$HOME/.fnm"
+        else
+            skip "fnm not installed"
         fi
     fi
 
@@ -275,7 +287,38 @@ if want "nvm"; then
         install "installing nvm"
         LATEST_NVM=$(curl -fsSI https://github.com/nvm-sh/nvm/releases/latest 2>/dev/null \
             | grep -i '^location:' | sed 's|.*/||' | tr -d '\r\n')
-        curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM}/install.sh" | PROFILE=/dev/null bash
+        NVM_PROFILE=${SHELL:-/bin/bash}; want "zsh" && NVM_PROFILE=/dev/null
+        curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${LATEST_NVM}/install.sh" | PROFILE="$NVM_PROFILE" bash
+    fi
+fi
+
+# ── fnm ──────────────────────────────────────────────────────────────────────
+if want "fnm"; then
+    next "fnm"
+
+    FNM_SKIP=(); want "zsh" && FNM_SKIP=(--skip-shell)
+
+    if command -v fnm &>/dev/null; then
+        if [[ "$UPDATE" == true ]]; then
+            update "updating fnm"
+            if is_macos; then brew upgrade fnm 2>/dev/null || true
+            else curl -fsSL https://fnm.vercel.app/install | bash -s -- "${FNM_SKIP[@]}"; fi
+        else
+            skip "fnm $(fnm --version 2>/dev/null) already installed"
+        fi
+    else
+        install "installing fnm"
+        if is_linux && ! command -v unzip &>/dev/null; then
+            pkg_install unzip
+        fi
+        if is_macos; then brew install fnm
+        else curl -fsSL https://fnm.vercel.app/install | bash -s -- "${FNM_SKIP[@]}"; fi
+    fi
+
+    if is_macos && ! want "zsh"; then
+        echo ""
+        echo "  Add to your shell rc file (~/.bashrc or ~/.zshrc):"
+        echo '    eval "$(fnm env --use-on-cd --shell zsh)"  # or --shell bash'
     fi
 fi
 
@@ -418,4 +461,5 @@ echo "=== Shell tools setup complete ==="
 echo "  Installed: ${COMPONENTS[*]}"
 echo ""
 want "byobu" && echo "  byobu  -- launch terminal multiplexer"
+want "fnm" && echo "  fnm   -- fnm install --lts && fnm use lts-latest"
 echo "Start a new terminal or run: exec zsh"
