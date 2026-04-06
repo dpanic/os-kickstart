@@ -115,9 +115,21 @@ check_violations() {
         | grep -c 'apparmor="ALLOWED"' || true)
 
     if [[ -n "$denied_lines" && -f "$IGNORE_FILE" ]]; then
-        while IFS= read -r profile; do
-            [[ -z "$profile" || "$profile" == \#* ]] && continue
-            denied_lines=$(echo "$denied_lines" | grep -v "profile=\"${profile}\"" || true)
+        while IFS= read -r pattern; do
+            [[ -z "$pattern" || "$pattern" == \#* ]] && continue
+            if [[ "$pattern" == *\** ]]; then
+                # Glob pattern: extract profile names, filter with fnmatch-style matching
+                denied_lines=$(echo "$denied_lines" | awk -v pat="$pattern" '
+                    {
+                        match($0, /profile="[^"]+"/);
+                        prof = substr($0, RSTART+9, RLENGTH-10);
+                        # Convert glob to regex: escape dots, replace * with .*
+                        gsub(/\./, "\\.", pat); gsub(/\*/, ".*", pat);
+                        if (prof !~ "^"pat"$") print
+                    }' || true)
+            else
+                denied_lines=$(echo "$denied_lines" | grep -v "profile=\"${pattern}\"" || true)
+            fi
         done < "$IGNORE_FILE"
     fi
 
@@ -199,18 +211,32 @@ check_tamper() {
 
     local diff_output
     diff_output=$(echo "$current_json" | python3 -c "
-import json, sys
+import json, sys, fnmatch
 
 baseline = json.load(open('$baseline_file'))
 current = json.load(sys.stdin)
 
+# Load ignore patterns (supports glob wildcards)
+ignore_patterns = []
+try:
+    with open('$IGNORE_FILE') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                ignore_patterns.append(line)
+except FileNotFoundError:
+    pass
+
+def ignored(name):
+    return any(fnmatch.fnmatch(name, pat) for pat in ignore_patterns)
+
 bp = baseline.get('profiles', {})
 cp = current.get('profiles', {})
 
-b_enforce = {k for k, v in bp.items() if v == 'enforce'}
-b_complain = {k for k, v in bp.items() if v == 'complain'}
-c_enforce = {k for k, v in cp.items() if v == 'enforce'}
-c_complain = {k for k, v in cp.items() if v == 'complain'}
+b_enforce = {k for k, v in bp.items() if v == 'enforce' and not ignored(k)}
+b_complain = {k for k, v in bp.items() if v == 'complain' and not ignored(k)}
+c_enforce = {k for k, v in cp.items() if v == 'enforce' and not ignored(k)}
+c_complain = {k for k, v in cp.items() if v == 'complain' and not ignored(k)}
 
 added_enforce = sorted(c_enforce - b_enforce)
 removed_enforce = sorted(b_enforce - c_enforce)

@@ -1,5 +1,7 @@
-# Default profiles to ignore (known-noisy snaps that produce harmless DENIED events).
+# Default profiles to ignore (known-noisy or expected profiles).
+# Supports glob patterns (e.g. *claude-code*).
 # These are merged into /var/lib/apparmor-monitor/ignore-profiles on install/update.
 # Add your own entries directly to the installed file -- they won't be removed.
 snap.firmware-updater.firmware-notifier
 snap.snapd-desktop-integration.snapd-desktop-integration
+*anthropic.claude-code-*
