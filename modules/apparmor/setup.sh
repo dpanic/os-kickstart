@@ -4,14 +4,18 @@ set -euo pipefail
 # AppArmor Learning Mode Setup
 # Author: Dusan Panic <dpanic@gmail.com>
 # Installs utils, switches all profiles to complain mode,
-# sets up a systemd timer to send a Slack reminder after 7 days.
-# Does NOT auto-enforce -- you review and enforce manually.
+# sets up a systemd timer that fires after 7 days.
+#
+# By default the timer only sends a Slack reminder so you can run
+# aa-logprof + aa-enforce manually. Pass --auto-enforce to make the
+# timer also run `aa-enforce /etc/apparmor.d/*` automatically.
 #
 # Usage:
-#   sudo ./apparmor-setup.sh <slack-webhook-url>
+#   sudo ./apparmor-setup.sh [--auto-enforce] <slack-webhook-url>
 #
 # Example:
 #   sudo ./apparmor-setup.sh https://hooks.slack.com/services/T.../B.../xxx
+#   sudo ./apparmor-setup.sh --auto-enforce https://hooks.slack.com/...
 
 if [[ $EUID -ne 0 ]]; then
     echo "Error: this script must be run as root (sudo)."
@@ -21,11 +25,13 @@ fi
 # Parse flags and positional args
 WEBHOOK_URL=""
 MODE=""
+AUTO_ENFORCE=0
 for arg in "$@"; do
     case "$arg" in
-        --uninstall) MODE="uninstall" ;;
-        --update)    MODE="update" ;;
-        *)           WEBHOOK_URL="$arg" ;;
+        --uninstall)    MODE="uninstall" ;;
+        --update)       MODE="update" ;;
+        --auto-enforce) AUTO_ENFORCE=1 ;;
+        *)              WEBHOOK_URL="$arg" ;;
     esac
 done
 
@@ -70,6 +76,11 @@ fi
 
 echo "=== AppArmor Learning Mode Setup ==="
 echo "  Learning period: ${LEARNING_DAYS} days"
+if [[ "$AUTO_ENFORCE" == "1" ]]; then
+    echo "  Mode: AUTO-ENFORCE (profiles switch back to enforce after ${LEARNING_DAYS} days)"
+else
+    echo "  Mode: REMINDER ONLY (manual enforce after ${LEARNING_DAYS} days)"
+fi
 echo "  Webhook: ${WEBHOOK_URL:0:50}..."
 echo ""
 
@@ -90,9 +101,19 @@ echo "[3/5] Creating Slack reminder script at $SCRIPT_PATH..."
 cat > "$SCRIPT_PATH" << 'REMIND_SCRIPT'
 #!/bin/bash
 WEBHOOK_URL="__WEBHOOK_URL__"
+AUTO_ENFORCE="__AUTO_ENFORCE__"
 HOSTNAME=$(hostname)
 PROFILES_COUNT=$(aa-status 2>/dev/null | grep -c "complain" || echo "?")
 LOG_VIOLATIONS=$(journalctl -t kernel --since "__LEARNING_DAYS__ days ago" 2>/dev/null | grep -c 'apparmor="ALLOWED"' || echo "0")
+
+if [[ "$AUTO_ENFORCE" == "1" ]]; then
+    aa-enforce /etc/apparmor.d/* 2>&1 | tail -5 || true
+    logger "AppArmor: auto-enforced /etc/apparmor.d/* after __LEARNING_DAYS__-day learning period"
+    POST_PROFILES_COUNT=$(aa-status 2>/dev/null | grep -c "enforce" || echo "?")
+    MESSAGE_TEXT=":shield: *AppArmor: __LEARNING_DAYS__-day learning period complete -- AUTO-ENFORCED*\n\n*Host:* \`${HOSTNAME}\`\n*Profiles now in enforce mode:* ${POST_PROFILES_COUNT}\n*Logged allowed violations during learning:* ${LOG_VIOLATIONS}\n\n---\n\n*All profiles have been automatically switched to enforce mode.*\n\nVerify with:\n\`\`\`\nsudo aa-status | head -20\n\`\`\`\n\nIf something breaks, revert with:\n\`\`\`\nsudo aa-complain /etc/apparmor.d/*\n\`\`\`"
+else
+    MESSAGE_TEXT=":shield: *AppArmor: __LEARNING_DAYS__-day learning period is complete*\n\n*Host:* \`${HOSTNAME}\`\n*Profiles in complain mode:* ${PROFILES_COUNT}\n*Logged allowed violations:* ${LOG_VIOLATIONS}\n\n---\n\n*What happened over the last __LEARNING_DAYS__ days?*\nAll AppArmor profiles were in *complain (learning) mode*. This means AppArmor did NOT block anything, but it logged every application behavior that would otherwise be denied. This helps learn what normal system operation looks like.\n\n*What to do now:*\n\n1. Review learned rules interactively:\n\`\`\`\nsudo aa-logprof\n\`\`\`\nThis shows each violation and asks whether to Allow, Deny, or ignore it.\n\n2. Once done reviewing, switch all profiles to enforce mode:\n\`\`\`\nsudo aa-enforce /etc/apparmor.d/*\n\`\`\`\n\n3. Verify status:\n\`\`\`\nsudo aa-status | head -20\n\`\`\`\n\n*Not ready yet?* No rush. Profiles stay in complain mode until you manually switch them. Nothing will break."
+fi
 
 curl -s -X POST "$WEBHOOK_URL" \
   -H 'Content-Type: application/json' \
@@ -100,16 +121,17 @@ curl -s -X POST "$WEBHOOK_URL" \
 {
   "username": "AppArmor Bot",
   "icon_emoji": ":shield:",
-  "text": ":shield: *AppArmor: __LEARNING_DAYS__-day learning period is complete*\n\n*Host:* \`${HOSTNAME}\`\n*Profiles in complain mode:* ${PROFILES_COUNT}\n*Logged allowed violations:* ${LOG_VIOLATIONS}\n\n---\n\n*What happened over the last __LEARNING_DAYS__ days?*\nAll AppArmor profiles were in *complain (learning) mode*. This means AppArmor did NOT block anything, but it logged every application behavior that would otherwise be denied. This helps learn what normal system operation looks like.\n\n*What to do now:*\n\n1. Review learned rules interactively:\n\`\`\`\nsudo aa-logprof\n\`\`\`\nThis shows each violation and asks whether to Allow, Deny, or ignore it.\n\n2. Once done reviewing, switch all profiles to enforce mode:\n\`\`\`\nsudo aa-enforce /etc/apparmor.d/*\n\`\`\`\n\n3. Verify status:\n\`\`\`\nsudo aa-status | head -20\n\`\`\`\n\n*Not ready yet?* No rush. Profiles stay in complain mode until you manually switch them. Nothing will break.\n\n---\n_This reminder was sent automatically by a systemd timer. The timer is now disabled._"
+  "text": "${MESSAGE_TEXT}\n\n---\n_This message was sent automatically by a systemd timer. The timer is now disabled._"
 }
 EOFMSG
 
-logger "AppArmor: learning period reminder sent to Slack."
+logger "AppArmor: learning period notification sent to Slack."
 systemctl disable apparmor-enforce.timer 2>/dev/null || true
 REMIND_SCRIPT
 
 sed -i "s|__WEBHOOK_URL__|${WEBHOOK_URL}|g" "$SCRIPT_PATH"
 sed -i "s|__LEARNING_DAYS__|${LEARNING_DAYS}|g" "$SCRIPT_PATH"
+sed -i "s|__AUTO_ENFORCE__|${AUTO_ENFORCE}|g" "$SCRIPT_PATH"
 chmod +x "$SCRIPT_PATH"
 echo "  done."
 
@@ -140,9 +162,14 @@ systemctl enable --now apparmor-enforce.timer
 echo "  done."
 
 echo "[5/5] Sending test message to Slack..."
+if [[ "$AUTO_ENFORCE" == "1" ]]; then
+    TEST_TEXT=":white_check_mark: *AppArmor learning mode activated on \`$(hostname)\`.*\n*AUTO-ENFORCE enabled* -- profiles will switch back to enforce in ${LEARNING_DAYS} days."
+else
+    TEST_TEXT=":white_check_mark: *AppArmor learning mode activated on \`$(hostname)\`.*\nReminder in ${LEARNING_DAYS} days."
+fi
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$WEBHOOK_URL" \
   -H 'Content-Type: application/json' \
-  -d "{\"username\": \"AppArmor Bot\", \"icon_emoji\": \":shield:\", \"text\": \":white_check_mark: *AppArmor learning mode activated on \`$(hostname)\`.*\nReminder in ${LEARNING_DAYS} days.\"}")
+  -d "{\"username\": \"AppArmor Bot\", \"icon_emoji\": \":shield:\", \"text\": \"${TEST_TEXT}\"}")
 
 if [[ "$HTTP_CODE" == "200" ]]; then
     echo "  webhook test: OK (HTTP $HTTP_CODE)"
@@ -156,7 +183,17 @@ echo "=== AppArmor setup complete ==="
 echo ""
 echo "Timer fires on: $(date -d "+${LEARNING_DAYS} days" '+%A %Y-%m-%d %H:%M')"
 echo ""
-echo "After receiving the Slack reminder, run:"
-echo "  sudo aa-logprof          # review learned rules interactively"
-echo "  sudo aa-enforce /etc/apparmor.d/*   # switch to enforce mode"
-echo "  sudo aa-status | head -20           # verify"
+if [[ "$AUTO_ENFORCE" == "1" ]]; then
+    echo "Mode: AUTO-ENFORCE"
+    echo "  Profiles will be automatically switched back to enforce mode."
+    echo "  Optionally review learned rules before the timer fires:"
+    echo "    sudo aa-logprof          # interactive review"
+    echo "  To cancel auto-enforce:"
+    echo "    sudo systemctl disable --now apparmor-enforce.timer"
+else
+    echo "Mode: REMINDER (manual enforce)"
+    echo "  After receiving the Slack reminder, run:"
+    echo "    sudo aa-logprof          # review learned rules interactively"
+    echo "    sudo aa-enforce /etc/apparmor.d/*   # switch to enforce mode"
+    echo "    sudo aa-status | head -20           # verify"
+fi

@@ -92,6 +92,8 @@ filter_ignored_profiles() {
             next
         }
         {
+            # Drop synthetic null-transition stacks unconditionally.
+            if (index($0, "//null-") > 0) next
             dominated = 0
             for (i in pats) {
                 p = pats[i]
@@ -140,6 +142,12 @@ check_violations() {
     local allowed_count=0
     allowed_count=$(journalctl -t kernel --since "$since_date" --no-pager 2>/dev/null \
         | grep -c 'apparmor="ALLOWED"' || true)
+
+    # Drop synthetic null-transition stacks (parent//null-/path) — these are
+    # complain-mode exec-chain artifacts, not real profile-attributable denials.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" | grep -v 'profile="[^"]*//null-' || true)
+    fi
 
     if [[ -n "$denied_lines" && -f "$IGNORE_FILE" ]]; then
         while IFS= read -r pattern; do
@@ -256,6 +264,11 @@ except FileNotFoundError:
     pass
 
 def ignored(name):
+    # Synthetic null-transition stacks (parent//null-/path) are runtime
+    # artifacts of complain-mode exec chains, not real profile changes.
+    # The //null- marker is reserved by the AppArmor kernel module.
+    if '//null-' in name:
+        return True
     return any(fnmatch.fnmatch(name, pat) for pat in ignore_patterns)
 
 bp = baseline.get('profiles', {})
