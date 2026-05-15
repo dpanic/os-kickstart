@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dpanic/os-kickstart/internal/sudo"
 	"github.com/dpanic/os-kickstart/internal/tui"
 )
 
@@ -20,6 +21,9 @@ var (
 )
 
 func main() {
+	cancelSudo := sudo.Prime()
+	defer cancelSudo()
+
 	m := tui.New(tui.Config{
 		Assets:  assets,
 		Version: version,

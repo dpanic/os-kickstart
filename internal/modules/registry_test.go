@@ -66,16 +66,17 @@ func TestForOS_IncludesAllAndLinuxOnLinux(t *testing.T) {
 	}
 }
 
-func TestNeedsSudo_OnlyApparmorModules(t *testing.T) {
+func TestNeedsSudo_AllowedModulesOnly(t *testing.T) {
 	t.Parallel()
 	mods := modules.AllModules()
 	allowed := map[string]bool{
 		"apparmor/setup.sh":   true,
 		"apparmor/monitor.sh": true,
+		"usb/monitor.sh":      true,
 	}
 	for _, m := range mods {
 		if m.NeedsSudo && !allowed[m.Script] {
-			t.Errorf("only apparmor modules should have NeedsSudo, got %q", m.ID)
+			t.Errorf("module %q has NeedsSudo but is not in the allowed list", m.ID)
 		}
 	}
 }

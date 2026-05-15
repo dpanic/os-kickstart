@@ -123,13 +123,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = msg.to
 		switch msg.to {
 		case screenGitInfo:
+			showUserInfo := modules.NeedsUserInfo(m.selectedModules)
 			showWebhook := modules.NeedsWebhook(m.selectedModules)
-			if !modules.NeedsUserInfo(m.selectedModules) {
+			if !showUserInfo && !showWebhook {
 				m.screen = screenConfirm
 				m.confirm = newConfirmModel(len(m.selectedModules), m.selectedMode)
 				return m, m.confirm.Init()
 			}
-			m.gitInfo = newGitInfoModel(showWebhook)
+			m.gitInfo = newGitInfoModel(showUserInfo, showWebhook)
 			return m, m.gitInfo.Init()
 		case screenConfirm:
 			m.confirm = newConfirmModel(len(m.selectedModules), m.selectedMode)

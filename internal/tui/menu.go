@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,16 +11,6 @@ import (
 	"github.com/dpanic/os-kickstart/internal/modules"
 	"golang.org/x/term"
 )
-
-// debugLogKey appends a timestamped keypress to /tmp/kickstart-keys.log.
-func debugLogKey(key string) {
-	f, err := os.OpenFile("/tmp/kickstart-keys.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	fmt.Fprintf(f, "%s key=%q\n", time.Now().Format("15:04:05.000"), key)
-}
 
 type menuItem struct {
 	module    modules.Module
@@ -169,8 +158,6 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 		m.fixScroll()
 
 	case tea.KeyMsg:
-		debugLogKey(msg.String())
-
 		// Filter mode input
 		if m.filtering {
 			switch msg.String() {

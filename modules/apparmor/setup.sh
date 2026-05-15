@@ -74,6 +74,18 @@ if [[ -z "$WEBHOOK_URL" ]]; then
     exit 1
 fi
 
+# Validate the webhook URL strictly. This string is later interpolated
+# into a sed substitution that writes a root-executed script and into a
+# curl JSON body, so any control byte, quote, or shell metacharacter
+# could escape its context and become code. Restrict to the unreserved
+# + reserved URL character classes from RFC 3986; reject anything else.
+if [[ ! "$WEBHOOK_URL" =~ ^https://[A-Za-z0-9._~:/?\#%@\&=+-]+$ ]]; then
+    echo "Error: webhook URL contains characters that are not safe to embed in a script."
+    echo "       Allowed: A-Z a-z 0-9 . _ ~ : / ? # % @ & = + -"
+    echo "       Must start with https://"
+    exit 1
+fi
+
 echo "=== AppArmor Learning Mode Setup ==="
 echo "  Learning period: ${LEARNING_DAYS} days"
 if [[ "$AUTO_ENFORCE" == "1" ]]; then

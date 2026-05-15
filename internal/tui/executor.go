@@ -15,6 +15,17 @@ import (
 
 const maxOutputLines = 5
 
+// scriptNeedsWebhookArg reports whether the module script takes the
+// webhook URL as its first positional argument. Keep in sync with
+// modules.NeedsWebhook in internal/modules/registry.go.
+func scriptNeedsWebhookArg(script string) bool {
+	switch script {
+	case "apparmor/setup.sh", "apparmor/monitor.sh", "usb/monitor.sh":
+		return true
+	}
+	return false
+}
+
 type executorModel struct {
 	groups   []modules.ScriptGroup
 	results  []runner.Result
@@ -41,11 +52,11 @@ func newExecutorModel(
 ) executorModel {
 	groups := modules.GroupByScript(selected)
 
-	// Skip apparmor scripts if no webhook URL provided
+	// Skip webhook-requiring scripts if no webhook URL provided
 	if webhookURL == "" {
 		filtered := make([]modules.ScriptGroup, 0, len(groups))
 		for _, g := range groups {
-			if g.Script == "apparmor/setup.sh" || g.Script == "apparmor/monitor.sh" {
+			if scriptNeedsWebhookArg(g.Script) {
 				continue
 			}
 			filtered = append(filtered, g)
@@ -71,7 +82,10 @@ func newExecutorModel(
 	}
 }
 
-func (m executorModel) Init() tea.Cmd {
+// Init uses a pointer receiver so the "no groups -> immediately done"
+// shortcut actually mutates the embedded executorModel; with a value
+// receiver the assignment to m.done was on a copy (staticcheck SA4005).
+func (m *executorModel) Init() tea.Cmd {
 	if len(m.groups) == 0 {
 		m.done = true
 		return func() tea.Msg { return allDoneMsg{} }
@@ -190,9 +204,9 @@ func (m executorModel) runCurrent() tea.Cmd {
 	webhookURL := m.webhookURL
 	prog := m.program
 
-	// Apparmor scripts: webhook URL is passed as first positional arg
+	// Webhook-requiring scripts: URL is passed as the first positional arg.
 	components := g.Components
-	if (g.Script == "apparmor/setup.sh" || g.Script == "apparmor/monitor.sh") && webhookURL != "" {
+	if scriptNeedsWebhookArg(g.Script) && webhookURL != "" {
 		components = []string{webhookURL}
 	}
 
