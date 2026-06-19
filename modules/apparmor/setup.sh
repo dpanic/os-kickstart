@@ -101,10 +101,19 @@ apt-get install -y apparmor-utils apparmor-profiles apparmor-profiles-extra
 echo "  done."
 
 echo "[2/5] Switching all profiles to complain (learning) mode..."
+# Don't let a single profile's non-zero exit abort the whole setup (pipefail would
+# otherwise propagate aa-complain's status through `| tail`). Capture and warn.
+set +e
 aa-complain /etc/apparmor.d/* 2>&1 | tail -5
+_aa_rc=${PIPESTATUS[0]}
+set -e
+[[ $_aa_rc -ne 0 ]] && echo "  WARNING: aa-complain exited $_aa_rc -- some profiles may not have switched; continuing." >&2
 echo ""
-COMPLAIN_COUNT=$(aa-status 2>/dev/null | grep -c "complain" || echo "?")
-ENFORCE_COUNT=$(aa-status 2>/dev/null | grep -c "enforce" || echo "?")
+# apparmor 4.x/5.x rewrote aa-status; its listing no longer appends "(complain)"
+# per profile, so `grep -c complain` always returns 1. Use the machine-readable
+# count flags instead (supported on both the legacy and the new binary).
+COMPLAIN_COUNT=$(aa-status --count --complaining 2>/dev/null || echo "?")
+ENFORCE_COUNT=$(aa-status --count --enforced 2>/dev/null || echo "?")
 echo "  Profiles in complain mode: $COMPLAIN_COUNT"
 echo "  Profiles still in enforce: $ENFORCE_COUNT (snap-confine, kernel-level)"
 echo "  done."
@@ -115,13 +124,13 @@ cat > "$SCRIPT_PATH" << 'REMIND_SCRIPT'
 WEBHOOK_URL="__WEBHOOK_URL__"
 AUTO_ENFORCE="__AUTO_ENFORCE__"
 HOSTNAME=$(hostname)
-PROFILES_COUNT=$(aa-status 2>/dev/null | grep -c "complain" || echo "?")
+PROFILES_COUNT=$(aa-status --count --complaining 2>/dev/null || echo "?")
 LOG_VIOLATIONS=$(journalctl -t kernel --since "__LEARNING_DAYS__ days ago" 2>/dev/null | grep -c 'apparmor="ALLOWED"' || echo "0")
 
 if [[ "$AUTO_ENFORCE" == "1" ]]; then
     aa-enforce /etc/apparmor.d/* 2>&1 | tail -5 || true
     logger "AppArmor: auto-enforced /etc/apparmor.d/* after __LEARNING_DAYS__-day learning period"
-    POST_PROFILES_COUNT=$(aa-status 2>/dev/null | grep -c "enforce" || echo "?")
+    POST_PROFILES_COUNT=$(aa-status --count --enforced 2>/dev/null || echo "?")
     MESSAGE_TEXT=":shield: *AppArmor: __LEARNING_DAYS__-day learning period complete -- AUTO-ENFORCED*\n\n*Host:* \`${HOSTNAME}\`\n*Profiles now in enforce mode:* ${POST_PROFILES_COUNT}\n*Logged allowed violations during learning:* ${LOG_VIOLATIONS}\n\n---\n\n*All profiles have been automatically switched to enforce mode.*\n\nVerify with:\n\`\`\`\nsudo aa-status | head -20\n\`\`\`\n\nIf something breaks, revert with:\n\`\`\`\nsudo aa-complain /etc/apparmor.d/*\n\`\`\`"
 else
     MESSAGE_TEXT=":shield: *AppArmor: __LEARNING_DAYS__-day learning period is complete*\n\n*Host:* \`${HOSTNAME}\`\n*Profiles in complain mode:* ${PROFILES_COUNT}\n*Logged allowed violations:* ${LOG_VIOLATIONS}\n\n---\n\n*What happened over the last __LEARNING_DAYS__ days?*\nAll AppArmor profiles were in *complain (learning) mode*. This means AppArmor did NOT block anything, but it logged every application behavior that would otherwise be denied. This helps learn what normal system operation looks like.\n\n*What to do now:*\n\n1. Review learned rules interactively:\n\`\`\`\nsudo aa-logprof\n\`\`\`\nThis shows each violation and asks whether to Allow, Deny, or ignore it.\n\n2. Once done reviewing, switch all profiles to enforce mode:\n\`\`\`\nsudo aa-enforce /etc/apparmor.d/*\n\`\`\`\n\n3. Verify status:\n\`\`\`\nsudo aa-status | head -20\n\`\`\`\n\n*Not ready yet?* No rush. Profiles stay in complain mode until you manually switch them. Nothing will break."

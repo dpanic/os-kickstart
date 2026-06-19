@@ -16,7 +16,8 @@ if [[ "$UNINSTALL" == true ]]; then
     echo ""
     echo "[1/2] Restoring Tracker to index recursively from HOME..."
     gsettings reset org.freedesktop.Tracker3.Miner.Files index-recursive-directories 2>/dev/null || true
-    systemctl --user restart tracker-miner-fs-3.service 2>/dev/null || true
+    systemctl --user restart localsearch-3.service 2>/dev/null \
+        || systemctl --user restart tracker-miner-fs-3.service 2>/dev/null || true
     echo "  done."
 
     echo "[2/2] Restoring default thumbnail settings..."
@@ -43,8 +44,15 @@ gsettings set org.freedesktop.Tracker3.Miner.Files index-recursive-directories "
 echo "  done."
 
 echo "[2/4] Clearing Tracker index and restarting..."
-tracker3 reset -s -r 2>/dev/null || true
-systemctl --user restart tracker-miner-fs-3.service 2>/dev/null || true
+# Ubuntu 25.10/26.04 split Tracker3 into TinySPARQL + LocalSearch: the `tracker3`
+# CLI became `localsearch` and tracker-miner-fs-3.service became localsearch-3.service.
+if command -v localsearch >/dev/null 2>&1; then
+    localsearch reset --filesystem 2>/dev/null || true
+elif command -v tracker3 >/dev/null 2>&1; then
+    tracker3 reset -s -r 2>/dev/null || true
+fi
+systemctl --user restart localsearch-3.service 2>/dev/null \
+    || systemctl --user restart tracker-miner-fs-3.service 2>/dev/null || true
 echo "  done."
 
 echo "[3/4] Configuring Nautilus thumbnails..."

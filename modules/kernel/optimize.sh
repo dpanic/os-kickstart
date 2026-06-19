@@ -95,6 +95,7 @@ if [[ "$UNINSTALL" == true ]]; then
 
     if want "sysctl"; then
         echo "[REVERT] sysctl..."
+        sudo rm -f /etc/modules-load.d/kickstart.conf
         if [[ -f /etc/sysctl.conf.bak-kickstart ]]; then
             sudo cp /etc/sysctl.conf.bak-kickstart /etc/sysctl.conf
             sudo sysctl -p >/dev/null 2>&1 || true
@@ -116,7 +117,24 @@ if want "sysctl"; then
 
     backup_file /etc/sysctl.conf
     sudo cp "$SCRIPT_DIR/sysctl.conf" /etc/sysctl.conf
+
+    # Some keys are backed by loadable modules that aren't auto-loaded:
+    #   tcp_bbr      -> net.ipv4.tcp_congestion_control = bbr
+    #   nf_conntrack -> net.netfilter.nf_conntrack_* (also races systemd-sysctl at boot)
+    # Load + persist them so the settings actually apply and survive reboot.
+    printf 'tcp_bbr\nnf_conntrack\n' | sudo tee /etc/modules-load.d/kickstart.conf >/dev/null
+    sudo modprobe tcp_bbr 2>/dev/null || true
+    sudo modprobe nf_conntrack 2>/dev/null || true
+
     sudo sysctl -p >/dev/null 2>&1 || echo "  warning: some sysctl params may require autotune/reboot"
+
+    # Assert the load-bearing optimization actually took -- don't silently stay on cubic.
+    _cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "?")
+    if [[ "$_cc" == "bbr" ]]; then
+        echo "  congestion control: bbr"
+    else
+        echo "  WARNING: congestion control is '$_cc', expected bbr (tcp_bbr unavailable on this kernel?)"
+    fi
     echo "  done: /etc/sysctl.conf (from modules/kernel/sysctl.conf)"
 fi
 

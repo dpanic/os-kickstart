@@ -39,6 +39,10 @@ KEEP_EXTENSIONS=(
     "ding@rastersoft.com"
     "system-monitor@gnome-shell-extensions.gcampax.github.com"
     "launch-new-instance@gnome-shell-extensions.gcampax.github.com"
+    # Canonical defaults introduced on Ubuntu 25.10/26.04 -- keep enabled
+    "snapd-prompting@canonical.com"
+    "snapd-search-provider@canonical.com"
+    "web-search-provider@ubuntu.com"
 )
 
 echo "=== GNOME Desktop Optimization ==="
@@ -67,7 +71,9 @@ while IFS= read -r ext; do
     if ! is_kept "$ext"; then
         if gnome-extensions disable "$ext" 2>/dev/null; then
             echo "  disabled: $ext"
-            ((disabled_count++))
+            # NB: $(( )) assignment, not ((var++)) -- the latter returns exit 1
+            # when the pre-increment value is 0 and trips `set -e`.
+            disabled_count=$((disabled_count + 1))
         fi
     else
         echo "  kept:     $ext"
