@@ -27,6 +27,8 @@ if [[ "$UNINSTALL" == true ]]; then
             sudo apt-get remove -y docker-ce docker-ce-cli containerd.io \
                 docker-buildx-plugin docker-compose-plugin 2>/dev/null || true
             sudo rm -f /etc/docker/daemon.json
+            sudo rm -f /etc/apt/sources.list.d/docker.list
+            sudo rm -f /etc/apt/keyrings/docker.asc
             echo "  note: docker data in /var/lib/docker left intact (remove manually if needed)"
         fi
     else
@@ -87,12 +89,17 @@ $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
 
     # [3/4] Add current user to docker group
     echo "[3/4] docker group..."
-    if groups | grep -q docker; then
+    # Check the authoritative NSS group database (id -nG), not `groups`, which
+    # reads the login session's cached credentials and lags a fresh usermod
+    # until re-login. Split to one group per line and match exactly (grep -qx)
+    # so names like `docker-admin` don't false-match (-w would: `-` is a word
+    # boundary, so `grep -qw docker` still matches `docker-admin`).
+    if id -nG "$(whoami)" | tr ' ' '\n' | grep -qx docker; then
         skip "user $(whoami) already in docker group"
     else
         install "adding $(whoami) to docker group"
         sudo usermod -aG docker "$(whoami)"
-        echo "  NOTE: log out and back in for group change to take effect"
+        echo "  NOTE: run 'newgrp docker' (or log out and back in) for the group change to take effect"
     fi
 
     # [4/4] Daemon config
