@@ -149,6 +149,16 @@ check_violations() {
         denied_lines=$(echo "$denied_lines" | grep -v 'profile="[^"]*//null-' || true)
     fi
 
+    # Drop benign Go-runtime async-preemption signals (SIGURG). Go (1.14+) sends
+    # SIGURG to preempt goroutines; docker-default denies cross-profile signal
+    # delivery to unconfined peers. Harmless — the runtime continues — but it
+    # floods the log on every go/cgo/swag/esbuild run. Not a security event, so
+    # it must not raise CRITICAL. Real docker-default denials (file/mount/ptrace)
+    # are kept.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" | grep -v 'operation="signal".*signal=urg' || true)
+    fi
+
     if [[ -n "$denied_lines" && -f "$IGNORE_FILE" ]]; then
         while IFS= read -r pattern; do
             [[ -z "$pattern" || "$pattern" == \#* ]] && continue
