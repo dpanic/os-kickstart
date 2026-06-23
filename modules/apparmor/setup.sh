@@ -35,7 +35,7 @@ for arg in "$@"; do
     esac
 done
 
-LEARNING_DAYS=7
+LEARNING_DAYS=30
 SCRIPT_PATH="/usr/local/bin/apparmor-remind.sh"
 SERVICE_PATH="/etc/systemd/system/apparmor-enforce.service"
 TIMER_PATH="/etc/systemd/system/apparmor-enforce.timer"
