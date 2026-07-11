@@ -163,14 +163,16 @@ check_violations() {
         while IFS= read -r pattern; do
             [[ -z "$pattern" || "$pattern" == \#* ]] && continue
             if [[ "$pattern" == *\** ]]; then
-                # Glob pattern: extract profile names, filter with fnmatch-style matching
+                # Glob pattern: extract profile names, filter with fnmatch-style matching.
+                # Convert glob to regex ONCE in BEGIN — doing it per-record re-escaped the
+                # already-converted pattern on every line after the first, so only the first
+                # DENIED line was ever filtered (e.g. versioned snap-confine kept alerting).
                 denied_lines=$(echo "$denied_lines" | awk -v pat="$pattern" '
+                    BEGIN { gsub(/\./, "\\.", pat); gsub(/\*/, ".*", pat); re = "^" pat "$" }
                     {
                         match($0, /profile="[^"]+"/);
                         prof = substr($0, RSTART+9, RLENGTH-10);
-                        # Convert glob to regex: escape dots, replace * with .*
-                        gsub(/\./, "\\.", pat); gsub(/\*/, ".*", pat);
-                        if (prof !~ "^"pat"$") print
+                        if (prof !~ re) print
                     }' || true)
             else
                 denied_lines=$(echo "$denied_lines" | grep -v "profile=\"${pattern}\"" || true)
