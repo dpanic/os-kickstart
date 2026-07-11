@@ -7,7 +7,7 @@ set -euo pipefail
 # Safe to re-run -- idempotent
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$REPO_DIR/lib.sh"
 
 parse_update_flag "$@"
@@ -59,6 +59,16 @@ install_peazip_deb() {
     curl -fsSL -o "$TMP_DEB" "$DEB_URL"
     sudo dpkg -i "$TMP_DEB" || sudo apt-get install -f -y
     rm -f "$TMP_DEB"
+
+    # The GTK2 .deb declares no Depends but dynamically links libgtk-x11-2.0,
+    # which is not part of a default Ubuntu 24.04+/26.04 install -- without it
+    # the package installs but the binary fails to launch. Pull the GTK2 runtime
+    # explicitly (t64 variant on 26.04, falling back to the pre-t64 name).
+    if ! ldconfig -p | grep -q 'libgtk-x11-2.0.so.0'; then
+        echo "  installing GTK2 runtime for peazip..."
+        sudo apt-get install -y libgtk2.0-0t64 2>/dev/null \
+            || sudo apt-get install -y libgtk2.0-0 2>/dev/null || true
+    fi
 
     PEAZIP_VER=$(dpkg -l peazip 2>/dev/null | awk '/^ii/{print $3}' || echo '?')
     echo "  installed: peazip ${PEAZIP_VER}"

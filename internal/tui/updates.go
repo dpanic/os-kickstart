@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,6 +46,12 @@ var versionCheckers = []versionChecker{
 		versionRe:  regexp.MustCompile(`(\d+\.\d+\.\d+)`),
 	},
 	{
+		moduleID:   "shell-fnm",
+		repo:       "Schniz/fnm",
+		versionCmd: []string{"fnm", "--version"},
+		versionRe:  regexp.MustCompile(`(\d+\.\d+\.\d+)`),
+	},
+	{
 		moduleID:   "go",
 		repo:       "",
 		versionCmd: []string{"go", "version"},
@@ -65,7 +72,13 @@ var versionCheckers = []versionChecker{
 	{
 		moduleID:   "peazip",
 		repo:       "peazip/PeaZip",
-		versionCmd: []string{"peazip", "--version"},
+		versionCmd: []string{"dpkg-query", "-W", "-f=${Version}", "peazip"},
+		versionRe:  regexp.MustCompile(`(\d+\.\d+\.\d+)`),
+	},
+	{
+		moduleID:   "app-signal",
+		repo:       "signalapp/Signal-Desktop",
+		versionCmd: []string{"dpkg-query", "-W", "-f=${Version}", "signal-desktop"},
 		versionRe:  regexp.MustCompile(`(\d+\.\d+\.\d+)`),
 	},
 }
@@ -154,7 +167,9 @@ func checkVersion(ctx context.Context, c versionChecker) updateCheckResult {
 func tryGetVersion(ctx context.Context, cmd string) string {
 	ctx2, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx2, cmd, "--version").CombinedOutput()
+	c := exec.CommandContext(ctx2, cmd, "--version")
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := c.CombinedOutput()
 	if err != nil {
 		return ""
 	}
@@ -200,7 +215,8 @@ func getInstalledVersion(ctx context.Context, cmd []string, re *regexp.Regexp) s
 	}
 
 	c := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
-	out, err := c.Output()
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := c.CombinedOutput()
 	if err != nil {
 		return ""
 	}

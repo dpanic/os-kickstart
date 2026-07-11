@@ -32,6 +32,7 @@ type menuModel struct {
 	filtering  bool
 	filter     string
 	visible    []int // indices of visible items when filtering
+	ready      bool  // true after first navigation key — blocks phantom space on startup
 }
 
 func newMenuModel(mods []modules.Module) menuModel {
@@ -186,12 +187,17 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 
 		switch msg.String() {
 		case "up", "k":
+			m.ready = true
 			m.cursor = m.prevSelectable(m.cursor)
 			m.fixScroll()
 		case "down", "j":
+			m.ready = true
 			m.cursor = m.nextSelectable(m.cursor)
 			m.fixScroll()
 		case " ":
+			if !m.ready {
+				return m, nil
+			}
 			if !m.items[m.cursor].separator {
 				if m.selected[m.cursor] {
 					delete(m.selected, m.cursor)
@@ -200,6 +206,9 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 				}
 			}
 		case "ctrl+a":
+			if !m.ready {
+				return m, nil
+			}
 			allSelected := len(m.selected) == m.selectableCount()
 			if allSelected {
 				m.selected = make(map[int]bool)
@@ -211,6 +220,7 @@ func (m menuModel) Update(msg tea.Msg) (menuModel, tea.Cmd) {
 				}
 			}
 		case "/":
+			m.ready = true
 			m.filtering = true
 			m.filter = ""
 			return m, nil
@@ -305,7 +315,6 @@ func (m menuModel) selectableCount() int {
 
 var (
 	updateAvailableStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
-	latestStyle          = OKStyle
 	installedStyle       = MutedStyle
 	sectionStyle         = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
 	subsectionStyle      = lipgloss.NewStyle().Foreground(ColorAccent2)
@@ -443,9 +452,10 @@ func (m menuModel) View() string {
 	}
 
 	// Pad the bar to fill the full terminal width
+	// FooterBarStyle has Padding(0,1) = 2 chars total
 	leftWidth := lipgloss.Width(leftText)
 	rightWidth := lipgloss.Width(rightText)
-	gap := w - leftWidth - rightWidth
+	gap := w - leftWidth - rightWidth - 2
 	if gap < 0 {
 		gap = 0
 	}

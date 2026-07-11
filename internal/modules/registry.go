@@ -23,6 +23,8 @@ func AllModules() []Module {
 		{ID: "gnome", Script: "gnome/optimize.sh", Label: "GNOME Optimize", Description: "disable animations, sounds, hot corners", Category: "optimization", OS: "linux", InstalledCmd: "gsettings"},
 		{ID: "nautilus", Script: "nautilus/optimize.sh", Label: "Nautilus Optimize", Description: "restrict Tracker, limit thumbnails", Category: "optimization", OS: "linux", InstalledCmd: "nautilus"},
 		{ID: "apparmor", Script: "apparmor/setup.sh", Label: "AppArmor Setup", Description: "learning mode with Slack reminder", Category: "optimization", OS: "linux", NeedsSudo: true, InstalledCmd: "apparmor_status"},
+		{ID: "apparmor-monitor", Script: "apparmor/monitor.sh", Label: "AppArmor Monitor", Description: "continuous violation alerts via Slack", Category: "optimization", OS: "linux", NeedsSudo: true, InstalledCheck: "/etc/systemd/system/apparmor-monitor.timer"},
+		{ID: "usb-monitor", Script: "usb/monitor.sh", Label: "USB Monitor", Description: "alert on new USB device insertions via webhook", Category: "optimization", OS: "linux", NeedsSudo: true, InstalledCheck: "/etc/udev/rules.d/99-usb-monitor.rules"},
 		{ID: "kernel-sysctl", Script: "kernel/optimize.sh", Components: []string{"sysctl"}, Label: "Kernel ▸ sysctl.conf", Description: "network, memory, conntrack tuning", Category: "optimization", OS: "linux", InstalledGrepFile: "/etc/sysctl.conf:bbr"},
 		{ID: "kernel-limits", Script: "kernel/optimize.sh", Components: []string{"limits"}, Label: "Kernel ▸ limits", Description: "file descriptor & process limits", Category: "optimization", OS: "linux", InstalledGrepFile: "/etc/security/limits.conf:2097152"},
 		{ID: "kernel-scheduler", Script: "kernel/optimize.sh", Components: []string{"scheduler"}, Label: "Kernel ▸ I/O scheduler", Description: "none (SSD/NVMe)", Category: "optimization", OS: "linux", InstalledCheck: "/etc/udev/rules.d/60-scheduler.rules"},
@@ -37,6 +39,7 @@ func AllModules() []Module {
 		{ID: "shell-autosuggestions", Script: "shell/install.sh", Components: []string{"plugins"}, Label: "zsh-autosuggestions", Category: "installation", Subsection: "Shell", OS: "all", InstalledCheck: "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions"},
 		{ID: "shell-syntax-hl", Script: "shell/install.sh", Components: []string{"plugins"}, Label: "zsh-syntax-highlighting", Category: "installation", Subsection: "Shell", OS: "all", InstalledCheck: "$HOME/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting"},
 		{ID: "shell-nvm", Script: "shell/install.sh", Components: []string{"nvm"}, Label: "nvm", Description: "Node version manager", Category: "installation", Subsection: "Shell", OS: "all", InstalledCheck: "$HOME/.nvm/nvm.sh"},
+		{ID: "shell-fnm", Script: "shell/install.sh", Components: []string{"fnm"}, Label: "fnm", Description: "Fast Node Manager", Category: "installation", Subsection: "Shell", OS: "all", InstalledCmd: "fnm"},
 		{ID: "shell-git", Script: "shell/install.sh", Components: []string{"git"}, Label: "git config", Description: "LFS, SSH-over-HTTPS", Category: "installation", Subsection: "Shell", OS: "all", InstalledCmd: "git"},
 		{ID: "shell-byobu", Script: "shell/install.sh", Components: []string{"byobu"}, Label: "byobu + tmux", Category: "installation", Subsection: "Shell", OS: "linux", InstalledCmd: "byobu"},
 
@@ -72,17 +75,17 @@ func ForOS(goos string) []Module {
 // NeedsUserInfo returns true if any module in the selection requires the GitInfo screen.
 func NeedsUserInfo(selected []Module) bool {
 	for _, m := range selected {
-		if m.ID == "shell-git" || m.ID == "apparmor" {
+		if m.ID == "shell-git" || m.ID == "apparmor" || m.ID == "apparmor-monitor" {
 			return true
 		}
 	}
 	return false
 }
 
-// NeedsWebhook returns true if apparmor is in the selection.
+// NeedsWebhook returns true if apparmor or usb-monitor is in the selection.
 func NeedsWebhook(selected []Module) bool {
 	for _, m := range selected {
-		if m.ID == "apparmor" {
+		if m.ID == "apparmor" || m.ID == "apparmor-monitor" || m.ID == "usb-monitor" {
 			return true
 		}
 	}

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Shared helpers for all kickstart scripts
-# Source this file: source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# Source from a module script: source "$REPO_DIR/lib.sh"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

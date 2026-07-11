@@ -1,3 +1,4 @@
+// Package tui implements the terminal user interface for os-kickstart.
 package tui
 
 import (
@@ -12,10 +13,6 @@ type tickMsg time.Time
 type bannerModel struct {
 	version string
 	commit  string
-}
-
-func newBannerModel(version, commit string) bannerModel {
-	return bannerModel{version: version, commit: commit}
 }
 
 func (m bannerModel) Init() tea.Cmd {

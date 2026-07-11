@@ -1,0 +1,12 @@
+# Default profiles to ignore (known-noisy or expected profiles).
+# Supports glob patterns (e.g. *claude-code*).
+# These are merged into /var/lib/apparmor-monitor/ignore-profiles on install/update.
+# Add your own entries directly to the installed file -- they won't be removed.
+snap.firmware-updater.firmware-notifier
+snap.snapd-desktop-integration.snapd-desktop-integration
+# snap-confine reading /run/gdm3 during GDM-greeter snap launches (read-only,
+# benign — the snap works regardless). Same greeter cluster as firmware-notifier
+# above. snapd reports a VERSIONED profile path (/snap/snapd/<rev>/usr/lib/snapd/
+# snap-confine) that changes on every refresh, so match it with a glob rather
+# than a rev-pinned exact name. Relies on the BEGIN-block glob filter in check.sh.
+/snap/snapd/*/usr/lib/snapd/snap-confine

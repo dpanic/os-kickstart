@@ -48,3 +48,17 @@ if [ "$FM_CURRENT" -ne "$FILE_MAX_TARGET" ]; then
     echo "Setting fs.file-max=$FILE_MAX_TARGET (RAM=${RAM_GB}G, was=$FM_CURRENT)"
     sysctl -w fs.file-max="$FILE_MAX_TARGET" >/dev/null
 fi
+
+# NIC ring buffers - set to hardware max for each active interface
+for IFACE in $(ip -o link show up | awk -F': ' '{print $2}' | grep -vE '^(lo|docker|br-|veth|tap|virbr)'); do
+    RX_MAX=$(ethtool -g "$IFACE" 2>/dev/null | awk '/Pre-set/,/Current/' | awk '/^RX:/{print $2}' | head -1)
+    RX_CUR=$(ethtool -g "$IFACE" 2>/dev/null | awk '/Current/,0' | awk '/^RX:/{print $2}' | head -1)
+    TX_MAX=$(ethtool -g "$IFACE" 2>/dev/null | awk '/Pre-set/,/Current/' | awk '/^TX:/{print $2}' | head -1)
+
+    if [ -n "$RX_MAX" ] && [ -n "$RX_CUR" ] && [ "$RX_CUR" -lt "$RX_MAX" ] 2>/dev/null; then
+        echo "Setting $IFACE ring buffer RX=$RX_MAX TX=$TX_MAX (was RX=$RX_CUR)"
+        ethtool -G "$IFACE" rx "$RX_MAX" tx "${TX_MAX:-$RX_MAX}" 2>/dev/null || true
+    else
+        echo "$IFACE ring buffer already at max ($RX_CUR), nothing to do."
+    fi
+done

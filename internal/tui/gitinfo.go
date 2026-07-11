@@ -10,45 +10,54 @@ import (
 )
 
 type gitInfoModel struct {
-	inputs      []textinput.Model
-	focused     int
-	showWebhook bool
-	err         string
+	inputs       []textinput.Model
+	focused      int
+	showIdentity bool
+	showWebhook  bool
+	err          string
 }
 
-func newGitInfoModel(showWebhook bool) gitInfoModel {
-	nameInput := textinput.New()
-	nameInput.Placeholder = "Full Name"
-	nameInput.Focus()
-	nameInput.CharLimit = 100
-	nameInput.Width = 40
+func newGitInfoModel(showIdentity, showWebhook bool) gitInfoModel {
+	var inputs []textinput.Model
 
-	emailInput := textinput.New()
-	emailInput.Placeholder = "email@example.com"
-	emailInput.CharLimit = 100
-	emailInput.Width = 40
+	if showIdentity {
+		nameInput := textinput.New()
+		nameInput.Placeholder = "Full Name"
+		nameInput.Focus()
+		nameInput.CharLimit = 100
+		nameInput.Width = 40
 
-	// Pre-fill from git config.
-	if name, err := exec.Command("git", "config", "--global", "user.name").Output(); err == nil {
-		nameInput.SetValue(strings.TrimSpace(string(name)))
+		emailInput := textinput.New()
+		emailInput.Placeholder = "email@example.com"
+		emailInput.CharLimit = 100
+		emailInput.Width = 40
+
+		// Pre-fill from git config.
+		if name, err := exec.Command("git", "config", "--global", "user.name").Output(); err == nil {
+			nameInput.SetValue(strings.TrimSpace(string(name)))
+		}
+		if email, err := exec.Command("git", "config", "--global", "user.email").Output(); err == nil {
+			emailInput.SetValue(strings.TrimSpace(string(email)))
+		}
+
+		inputs = append(inputs, nameInput, emailInput)
 	}
-	if email, err := exec.Command("git", "config", "--global", "user.email").Output(); err == nil {
-		emailInput.SetValue(strings.TrimSpace(string(email)))
-	}
-
-	inputs := []textinput.Model{nameInput, emailInput}
 
 	if showWebhook {
 		webhookInput := textinput.New()
-		webhookInput.Placeholder = "https://hooks.slack.com/... (optional)"
+		webhookInput.Placeholder = "https://hooks.slack.com/..."
 		webhookInput.CharLimit = 200
 		webhookInput.Width = 60
+		if !showIdentity {
+			webhookInput.Focus()
+		}
 		inputs = append(inputs, webhookInput)
 	}
 
 	return gitInfoModel{
-		inputs:      inputs,
-		showWebhook: showWebhook,
+		inputs:       inputs,
+		showIdentity: showIdentity,
+		showWebhook:  showWebhook,
 	}
 }
 
@@ -77,15 +86,23 @@ func (m gitInfoModel) Update(msg tea.Msg) (gitInfoModel, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 
 		case "enter":
-			name := strings.TrimSpace(m.inputs[0].Value())
-			email := strings.TrimSpace(m.inputs[1].Value())
-			if name == "" || email == "" {
-				m.err = "Name and email are required"
-				return m, nil
+			var name, email, webhook string
+			idx := 0
+			if m.showIdentity {
+				name = strings.TrimSpace(m.inputs[idx].Value())
+				email = strings.TrimSpace(m.inputs[idx+1].Value())
+				if name == "" || email == "" {
+					m.err = "Name and email are required"
+					return m, nil
+				}
+				idx += 2
 			}
-			webhook := ""
-			if m.showWebhook && len(m.inputs) > 2 {
-				webhook = strings.TrimSpace(m.inputs[2].Value())
+			if m.showWebhook {
+				webhook = strings.TrimSpace(m.inputs[idx].Value())
+				if webhook == "" {
+					m.err = "Webhook URL is required"
+					return m, nil
+				}
 			}
 			return m, tea.Batch(
 				func() tea.Msg {
@@ -119,10 +136,22 @@ func (m gitInfoModel) View() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorAccent)
-	b.WriteString(titleStyle.Render("  Git Configuration") + "\n")
+	title := "  Configuration"
+	switch {
+	case m.showIdentity && m.showWebhook:
+		title = "  Git & Webhook Configuration"
+	case m.showIdentity:
+		title = "  Git Configuration"
+	case m.showWebhook:
+		title = "  Webhook Configuration"
+	}
+	b.WriteString(titleStyle.Render(title) + "\n")
 	b.WriteString(MutedStyle.Render("  tab switch • enter confirm • esc back") + "\n\n")
 
-	labels := []string{"  Name:    ", "  Email:   "}
+	var labels []string
+	if m.showIdentity {
+		labels = append(labels, "  Name:    ", "  Email:   ")
+	}
 	if m.showWebhook {
 		labels = append(labels, "  Webhook: ")
 	}

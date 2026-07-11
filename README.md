@@ -1,5 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Ubuntu-24.04-E95420?style=flat-square&logo=ubuntu&logoColor=white" alt="Ubuntu 24.04" />
+  <img src="https://img.shields.io/badge/Ubuntu-26.04-E95420?style=flat-square&logo=ubuntu&logoColor=white" alt="Ubuntu 26.04" />
   <img src="https://img.shields.io/badge/macOS-Supported-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
   <img src="https://img.shields.io/badge/Go-Binary-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go" />
   <img src="https://img.shields.io/badge/TUI-Bubble_Tea-FF69B4?style=flat-square" alt="Bubble Tea TUI" />
@@ -49,7 +50,7 @@ go install github.com/dpanic/os-kickstart@latest
 - **Interactive TUI** — multi-select menu with categories, search filter, scroll viewport
 - **Install / Update / Uninstall** — fresh install, refresh to latest, or clean removal
 - **Idempotent** — safe to re-run, skips what's already installed
-- **Cross-platform** — Ubuntu 24.04 + macOS (Linux-only items auto-hidden on Mac)
+- **Cross-platform** — Ubuntu 24.04 & 26.04 + macOS (Linux-only items auto-hidden on Mac)
 - **Async update checks** — checks GitHub releases and go.dev for new versions in background
 - **Installed detection** — shows `[installed X.Y.Z]` for tools already on the system
 
@@ -147,9 +148,11 @@ Status badges in the menu:
 
 | | Requirement |
 |-|-------------|
-| Linux | Ubuntu 24.04 with GNOME 46 |
+| Linux | Ubuntu 24.04 (GNOME 46) or 26.04 LTS "Resolute Raccoon" (GNOME 50) — **tested on both** |
 | macOS | macOS with Homebrew |
 | Network | Internet connection for downloads |
+
+> **Ubuntu 26.04 support:** all modules are tested on Ubuntu 26.04 (kernel 7.0, GNOME 50, OpenSSH 10.2, AppArmor 5.0). See the `fix(modules): Ubuntu 26.04 (resolute) compatibility` work for the specific adaptations.
 
 ---
 

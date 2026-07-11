@@ -1,0 +1,12 @@
+# USB device allowlist for usb-monitor.
+# Format: one VID:PID per line, lowercase hex, no spaces.
+# Comments (#) and blank lines are ignored.
+#
+# Entries below this header are seeded from `lsusb` at install time
+# (all devices currently connected when the monitor was set up).
+#
+# To trust a new device after install, append its VID:PID:
+#   echo '046d:c52b' | sudo tee -a /var/lib/usb-monitor/allow
+#
+# To find VID:PID of an unknown device:
+#   lsusb

@@ -1,0 +1,11 @@
+# USB Monitor — fire alert script on every USB device-add event.
+# Installed to /etc/udev/rules.d/ by modules/usb/monitor.sh.
+#
+# DEVTYPE=="usb_device" filters out per-interface duplicates (one event
+# per physical device, not per HID/audio/storage interface).
+#
+# The script re-execs itself via systemd-run --no-block to escape udev's
+# ~3s RUN+= timeout before doing the webhook curl. See alert.sh for the
+# detach logic.
+
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", RUN+="/usr/local/bin/usb-monitor-alert.sh"
