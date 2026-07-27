@@ -203,6 +203,28 @@ check_violations() {
             'class="file".*info="Failed name lookup - disconnected path".*name="(proc/[0-9]+/(uid_map|gid_map|setgroups))?"')
     fi
 
+    # Drop the PASSIVE side of the cross-label ptrace check. denied_mask="readby"
+    # is evaluated against the process being looked AT, not the one looking, so
+    # every /proc walk trips it once per confined target it happens to pass:
+    # ps, pgrep, aa-status, Chrome's ThreadPoolForeg. The userns naming stubs
+    # give nearly every desktop process its own label, which turns an ordinary
+    # `ps` into a burst of these — loupe alone emitted ~130 in five hours (its
+    # glycin/bwrap image loaders linger for hours after the window closes) and
+    # paged CRITICAL on almost every tick; desktop-icons-ng emits the same shape.
+    # Deliberately narrow: only an exact denied_mask="readby" is dropped. The
+    # ACTIVE side, denied_mask="read" — a process reading another's memory —
+    # still alerts, as do trace/tracedby (PTRACE_ATTACH, the shape a debugger or
+    # a memory dump produces). A combined mask does not match this pattern.
+    # Suppressed here rather than granted in /etc/apparmor.d/local/*: on this
+    # apparmor 5.0.0~beta1 host the block is REAL (the read returns EACCES even
+    # though the profile is loaded in complain mode), and the label is reachable
+    # by unprivileged code via LD_PRELOAD and the stubs' `ix` inheritance, so
+    # enforcement stays exactly as shipped and only the paging stops — same
+    # principle as the cupsd filter below.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" | drop_noise 'class="ptrace".*denied_mask="readby"')
+    fi
+
     # Drop benign CUPS denials. cupsd requests capabilities Ubuntu's profile
     # deliberately withholds (sys_resource/sys_admin/net_admin) and degrades
     # gracefully — printing works. cupsd and cups-browsed also read two static,
