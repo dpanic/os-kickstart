@@ -30,12 +30,19 @@ N_UIDMAP='apparmor="DENIED" operation="open" class="file" info="Failed name look
 N_CUPSCAP='apparmor="DENIED" operation="capable" class="cap" profile="/usr/sbin/cupsd" pid=1 comm="cupsd" capability=24  capname="sys_resource"'
 N_CUPSFILE='apparmor="DENIED" operation="open" class="file" profile="/usr/sbin/cupsd" name="/etc/paperspecs" pid=1 comm="cupsd" requested_mask="r" denied_mask="r"'
 N_URG='apparmor="DENIED" operation="signal" profile="docker-default" pid=1 comm="go" requested_mask="receive" denied_mask="receive" signal=urg'
+N_READBY='apparmor="DENIED" operation="ptrace" class="ptrace" profile="loupe" pid=1 comm="ThreadPoolForeg" requested_mask="readby" denied_mask="readby" peer="chrome"'
 
 # must SURVIVE -- these are real breakage or real policy decisions
 R_DINGLIB='apparmor="DENIED" operation="getattr" class="file" profile="desktop-icons-ng" name="/usr/lib/x86_64-linux-gnu/libselinux.so.1" pid=1 comm="ding.js" requested_mask="r" denied_mask="r"'
 R_CUPSCAP='apparmor="DENIED" operation="capable" class="cap" profile="/usr/sbin/cupsd" pid=1 comm="cupsd" capability=21  capname="sys_ptrace"'
 R_NAMEDDISC='apparmor="DENIED" operation="open" class="file" info="Failed name lookup - disconnected path" error=-13 profile="someapp" name="/etc/shadow" pid=1 comm="evil" requested_mask="r" denied_mask="r"'
 R_MQNAMED='apparmor="DENIED" operation="open" class="posix_mqueue" profile="vscode" name="/realqueue" pid=1 comm="claude" requested="read" denied="read"'
+# The readby filter must not swallow the ptrace shapes that carry real signal:
+# tracedby is PTRACE_ATTACH against a confined process, read is the active side
+# (one process reading another's memory), and a combined mask is not "readby".
+R_TRACEDBY='apparmor="DENIED" operation="ptrace" class="ptrace" profile="loupe" pid=1 comm="cat" requested_mask="tracedby" denied_mask="tracedby" peer="vscode"'
+R_PTRACEREAD='apparmor="DENIED" operation="ptrace" class="ptrace" profile="chrome" pid=1 comm="evil" requested_mask="read" denied_mask="read" peer="loupe"'
+R_MASKCOMBO='apparmor="DENIED" operation="ptrace" class="ptrace" profile="loupe" pid=1 comm="evil" requested_mask="read readby" denied_mask="read readby" peer="vscode"'
 
 # the filter chain exactly as check_violations applies it
 chain() {
@@ -43,6 +50,7 @@ chain() {
     | drop_noise 'operation="signal".*signal=urg' \
     | drop_noise 'class="posix_mqueue".*info="Failed name lookup - disconnected IPC path"' \
     | drop_noise -P 'class="file".*info="Failed name lookup - disconnected path".*name="(proc/[0-9]+/(uid_map|gid_map|setgroups))?"' \
+    | drop_noise 'class="ptrace".*denied_mask="readby"' \
     | drop_noise -P 'profile="/usr/sbin/cups(d|-browsed)".*(capname="(sys_resource|sys_admin|net_admin)"|name="(/etc/paperspecs|/usr/share/coreutils/locales/[^"]+)")'
 }
 
@@ -52,18 +60,19 @@ echo "TEST 1 -- a rejected pattern must keep every line, never blind the monitor
 check 3 "$(printf 'a\nb\nc\n' | drop_noise -P 'x(y' | grep -c .)" "bad regex passes all input through"
 
 echo "TEST 2 -- each noise fixture is dropped"
-for f in N_MQUEUE N_UNNAMED N_UIDMAP N_CUPSCAP N_CUPSFILE N_URG; do
+for f in N_MQUEUE N_UNNAMED N_UIDMAP N_CUPSCAP N_CUPSFILE N_URG N_READBY; do
     check 0 "$(printf '%s\n' "${!f}" | chain | grep -c .)" "$f dropped"
 done
 
 echo "TEST 3 -- real denials survive the chain"
-for f in R_DINGLIB R_CUPSCAP R_NAMEDDISC R_MQNAMED; do
+for f in R_DINGLIB R_CUPSCAP R_NAMEDDISC R_MQNAMED R_TRACEDBY R_PTRACEREAD R_MASKCOMBO; do
     check 1 "$(printf '%s\n' "${!f}" | chain | grep -c .)" "$f kept"
 done
 
 echo "TEST 4 -- mixed batch keeps exactly the real ones"
-all=$(printf '%s\n' "$N_MQUEUE" "$R_DINGLIB" "$N_UNNAMED" "$R_CUPSCAP" "$N_CUPSCAP" "$R_NAMEDDISC" "$N_UIDMAP" "$R_MQNAMED" "$N_CUPSFILE" "$N_URG")
-check 4 "$(printf '%s\n' "$all" | chain | grep -c .)" "4 of 10 survive"
+all=$(printf '%s\n' "$N_MQUEUE" "$R_DINGLIB" "$N_UNNAMED" "$R_CUPSCAP" "$N_CUPSCAP" "$R_NAMEDDISC" "$N_UIDMAP" "$R_MQNAMED" "$N_CUPSFILE" "$N_URG" \
+    "$N_READBY" "$R_TRACEDBY" "$R_PTRACEREAD" "$R_MASKCOMBO")
+check 7 "$(printf '%s\n' "$all" | chain | grep -c .)" "7 of 14 survive"
 
 echo
 [[ $fail -eq 0 ]] && echo "PASS" || echo "FAIL"
