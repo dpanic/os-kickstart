@@ -120,11 +120,13 @@ patch_userns_stubs() {
   umount,
   pivot_root,
   allow file rwlkm /{**,},
-  /{usr/,}bin/* rmix,
-  /{usr/,}sbin/* rmix,
-  /usr/libexec/** rmix,
+  /{usr/,}bin/** rmix,
+  /{usr/,}sbin/** rmix,
+  /usr/local/** rmix,
+  /usr/lib/** rmix,
   /opt/** rmix,
   /snap/bin/* rmix,
+  owner @{HOME}/** rmix,
   @{PROC}/sys/user/max_user_namespaces r,
   @{PROC}/sys/kernel/overflowuid r,
   @{PROC}/sys/kernel/overflowgid r,
@@ -136,12 +138,48 @@ patch_userns_stubs() {
   owner @{HOME}/.local/share/gvfs-metadata/** r,
 EOF
 
-    for app in code desktop-icons-ng loupe libreoffice-soffice libreoffice-soffice.bin; do
+    for app in code desktop-icons-ng loupe; do
         if [[ -f "/etc/apparmor.d/local/$app" ]]; then
             cat /etc/apparmor.d/local/bwrap-userns-rules > "/etc/apparmor.d/local/$app"
         fi
     done
-    rm -f /etc/apparmor.d/local/bwrap-userns-rules
+
+    cat << 'EOF' > /etc/apparmor.d/local/bwrap-userns-rules-lo
+  capability,
+  network,
+  unix,
+  dbus,
+  ptrace,
+  signal,
+  mount,
+  remount,
+  umount,
+  pivot_root,
+  allow file rwlkm /{**,},
+  /{usr/,}bin/* rmix,
+  /{usr/,}sbin/* rmix,
+  /usr/local/** rmix,
+  /usr/libexec/** rmix,
+  /opt/** rmix,
+  /snap/bin/* rmix,
+  owner @{HOME}/** rmix,
+  @{PROC}/sys/user/max_user_namespaces r,
+  @{PROC}/sys/kernel/overflowuid r,
+  @{PROC}/sys/kernel/overflowgid r,
+  @{PROC}/[0-9]*/cgroup r,
+  @{PROC}/[0-9]*/setgroups rw,
+  @{PROC}/[0-9]*/uid_map rw,
+  @{PROC}/[0-9]*/gid_map rw,
+  /sys/fs/cgroup/** r,
+  owner @{HOME}/.local/share/gvfs-metadata/** r,
+EOF
+
+    for app in libreoffice-soffice libreoffice-soffice.bin; do
+        if [[ -f "/etc/apparmor.d/local/$app" ]]; then
+            cat /etc/apparmor.d/local/bwrap-userns-rules-lo > "/etc/apparmor.d/local/$app"
+        fi
+    done
+    rm -f /etc/apparmor.d/local/bwrap-userns-rules /etc/apparmor.d/local/bwrap-userns-rules-lo
 }
 
 
