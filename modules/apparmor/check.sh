@@ -159,6 +159,17 @@ check_violations() {
         denied_lines=$(echo "$denied_lines" | grep -v 'operation="signal".*signal=urg' || true)
     fi
 
+    # Drop POSIX mqueue denials on disconnected IPC paths. "Failed name lookup -
+    # disconnected IPC path" means the kernel could not resolve a name for the
+    # queue, so no mqueue rule can ever match it — an mqueue-mediation artifact,
+    # not a policy decision about a real named resource. A profile-side fix needs
+    # flags=(attach_disconnected) in the profile header, which the packaged stubs
+    # regenerate away. Named-mqueue denials still alert.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" \
+            | grep -v 'class="posix_mqueue".*info="Failed name lookup - disconnected IPC path"' || true)
+    fi
+
     if [[ -n "$denied_lines" && -f "$IGNORE_FILE" ]]; then
         while IFS= read -r pattern; do
             [[ -z "$pattern" || "$pattern" == \#* ]] && continue
