@@ -99,6 +99,50 @@ disable_runtime_profiles() {
     done
 }
 
+# Patch Ubuntu 24.04 userns stubs and local overrides so bwrap/glycin/desktop apps work
+patch_userns_stubs() {
+    local p app
+    for p in code desktop-icons-ng loupe libreoffice-soffice.bin; do
+        if [[ -f "/etc/apparmor.d/$p" ]]; then
+            sed -i 's|^\(profile [^{]*\)\({.*$\)|\1flags=(attach_disconnected, mediate_deleted) \2|' "/etc/apparmor.d/$p" 2>/dev/null || true
+        fi
+    done
+
+    cat << 'EOF' > /etc/apparmor.d/local/bwrap-userns-rules
+  capability,
+  network,
+  unix,
+  dbus,
+  mount,
+  remount,
+  umount,
+  pivot_root,
+  allow file rwlkm /{**,},
+  /{usr/,}bin/true rmix,
+  /{usr/,}bin/gnutrue rmix,
+  @{PROC}/sys/user/max_user_namespaces r,
+  @{PROC}/sys/kernel/overflowuid r,
+  @{PROC}/sys/kernel/overflowgid r,
+  @{PROC}/[0-9]*/cgroup r,
+  @{PROC}/[0-9]*/setgroups rw,
+  @{PROC}/[0-9]*/uid_map rw,
+  @{PROC}/[0-9]*/gid_map rw,
+  /sys/fs/cgroup/** r,
+  /usr/bin/bwrap rmix,
+  /usr/libexec/glycin-loaders/** rmix,
+  /usr/share/glycin-loaders/** r,
+  owner @{HOME}/.local/share/gvfs-metadata/** r,
+EOF
+
+    for app in code desktop-icons-ng loupe libreoffice-soffice libreoffice-soffice.bin; do
+        if [[ -f "/etc/apparmor.d/local/$app" ]]; then
+            cat /etc/apparmor.d/local/bwrap-userns-rules > "/etc/apparmor.d/local/$app"
+        fi
+    done
+    rm -f /etc/apparmor.d/local/bwrap-userns-rules
+}
+
+
 # Echo (one per line) the profile files to enforce: every top-level profile in
 # /etc/apparmor.d/ EXCEPT the runtime profiles and anything already disabled.
 enforce_list() {
@@ -176,10 +220,11 @@ echo "  Docker-safe: $([[ "$DOCKER_SAFE" == "1" ]] && echo on || echo off)"
 echo "  Webhook: ${WEBHOOK_URL:0:50}..."
 echo ""
 
-echo "[1/5] Installing apparmor-utils..."
+echo "[1/5] Installing apparmor-utils & patching desktop userns stubs..."
 # Deliberately NOT installing apparmor-profiles / apparmor-profiles-extra -- see
 # the header note. The base apparmor package already provides the profiles.
 apt-get install -y apparmor-utils
+patch_userns_stubs
 echo "  done."
 
 echo "[2/5] Switching all profiles to complain (learning) mode..."
