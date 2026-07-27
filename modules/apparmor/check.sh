@@ -80,6 +80,26 @@ json_escape() {
 # head replacement that doesn't cause SIGPIPE in pipefail pipelines
 first_n() { awk -v n="${1:-5}" 'NR<=n'; }
 
+# Drop stdin lines matching a noise pattern, failing CLOSED on a bad regex.
+# grep exits 1 when nothing survives (legitimate — everything was noise) and 2
+# when the pattern itself is rejected. The plain `... || true` idiom masks both,
+# so one bad pattern silently empties denied_lines and the monitor stops
+# alerting on anything at all. On a regex error keep every line and log it, so
+# the failure surfaces as noise rather than as silence.
+drop_noise() {
+    local input out rc
+    input=$(cat)
+    [[ -z "$input" ]] && return 0
+    out=$(printf '%s\n' "$input" | grep -v "$@" 2>/dev/null)
+    rc=$?
+    if [[ $rc -eq 2 ]]; then
+        logger "apparmor-monitor: filter pattern rejected, keeping all denials: $*"
+        printf '%s' "$input"
+        return 0
+    fi
+    printf '%s' "$out"
+}
+
 # Filter out ignored profile names from stdin (one name per line).
 # Reads glob patterns from IGNORE_FILE; exact entries use string match,
 # patterns with * use awk regex conversion.
@@ -146,7 +166,7 @@ check_violations() {
     # Drop synthetic null-transition stacks (parent//null-/path) — these are
     # complain-mode exec-chain artifacts, not real profile-attributable denials.
     if [[ -n "$denied_lines" ]]; then
-        denied_lines=$(echo "$denied_lines" | grep -v 'profile="[^"]*//null-' || true)
+        denied_lines=$(echo "$denied_lines" | drop_noise 'profile="[^"]*//null-')
     fi
 
     # Drop benign Go-runtime async-preemption signals (SIGURG). Go (1.14+) sends
@@ -156,7 +176,7 @@ check_violations() {
     # it must not raise CRITICAL. Real docker-default denials (file/mount/ptrace)
     # are kept.
     if [[ -n "$denied_lines" ]]; then
-        denied_lines=$(echo "$denied_lines" | grep -v 'operation="signal".*signal=urg' || true)
+        denied_lines=$(echo "$denied_lines" | drop_noise 'operation="signal".*signal=urg')
     fi
 
     # Drop POSIX mqueue denials on disconnected IPC paths. "Failed name lookup -
@@ -167,7 +187,33 @@ check_violations() {
     # regenerate away. Named-mqueue denials still alert.
     if [[ -n "$denied_lines" ]]; then
         denied_lines=$(echo "$denied_lines" \
-            | grep -v 'class="posix_mqueue".*info="Failed name lookup - disconnected IPC path"' || true)
+            | drop_noise 'class="posix_mqueue".*info="Failed name lookup - disconnected IPC path"')
+    fi
+
+    # Drop disconnected-path file denials the kernel could not name. Sandbox
+    # launchers (bwrap, Electron/Chromium zygotes) hit these while wiring a user
+    # namespace: the path cannot be reconnected to the profile's namespace root,
+    # so it is reported either as name="" or as an unrooted proc/<pid>/*_map. In
+    # both cases no file rule can ever match, which makes it a mediation artifact
+    # rather than a policy decision — same shape as the mqueue case above.
+    # Deliberately narrow: a disconnected-path denial that DOES carry a resolvable
+    # name still alerts.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" | drop_noise -P \
+            'class="file".*info="Failed name lookup - disconnected path".*name="(proc/[0-9]+/(uid_map|gid_map|setgroups))?"')
+    fi
+
+    # Drop benign CUPS denials. cupsd requests capabilities Ubuntu's profile
+    # deliberately withholds (sys_resource/sys_admin/net_admin) and degrades
+    # gracefully — printing works. cupsd and cups-browsed also read two static,
+    # non-secret files the profile omits: /etc/paperspecs and the coreutils
+    # uucore locale bundle. Suppressed here rather than allowed in
+    # local/usr.sbin.cupsd on purpose: cupsd is network-facing, so enforcement
+    # stays exactly as shipped and only the paging stops. Any other cups denial
+    # — including a capability outside this list — still alerts.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" | drop_noise -P \
+            'profile="/usr/sbin/cups(d|-browsed)".*(capname="(sys_resource|sys_admin|net_admin)"|name="(/etc/paperspecs|/usr/share/coreutils/locales/[^"]+)")')
     fi
 
     if [[ -n "$denied_lines" && -f "$IGNORE_FILE" ]]; then
