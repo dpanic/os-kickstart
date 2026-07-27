@@ -198,6 +198,49 @@ enforce_list() {
     done
 }
 
+# Break down the profiles that stayed in enforce after the complain switch.
+# `aa-complain /etc/apparmor.d/*` only reaches profiles that live in that
+# directory, so the learning window is never total and the step above must not
+# read as if it were: snapd keeps its own profiles under
+# /var/lib/snapd/apparmor/profiles/ and re-enforces them on every refresh, and
+# child profiles (parent//hat) keep the mode they were compiled with because
+# aa-complain on the parent does not cascade. Both are expected. Anything else
+# is a profile that genuinely failed to switch, so name it -- that is the case
+# worth acting on, and it was previously indistinguishable from the other two
+# in the bare "still in enforce: N" count.
+report_enforce_holdouts() {
+    command -v python3 &>/dev/null || { echo "    (install python3 for a breakdown of the holdouts)"; return 0; }
+    local snapd=0 child=0 p
+    local -a other=()
+    while read -r p; do
+        [[ -z "$p" ]] && continue
+        case "$p" in
+            snap.*|snap-update-ns.*|*/snapd/*/snap-confine) snapd=$((snapd + 1)) ;;
+            *//*)                                           child=$((child + 1)) ;;
+            *)                                              other+=("$p") ;;
+        esac
+    done < <(aa-status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    profiles = json.load(sys.stdin)["profiles"]
+except Exception:
+    sys.exit(0)
+for name, mode in profiles.items():
+    if mode == "enforce":
+        print(name)
+' 2>/dev/null)
+
+    echo "    snapd-owned (not in /etc/apparmor.d, re-enforced on refresh): $snapd"
+    echo "    child profiles (parent//hat, mode does not cascade):          $child"
+    if [[ ${#other[@]} -gt 0 ]]; then
+        echo "    FAILED to switch -- investigate: ${other[*]}"
+    else
+        echo "    failed to switch:                                             0"
+    fi
+    [[ $snapd -gt 0 ]] && echo "  NOTE: snaps stay enforcing through the learning window -- their denials are real blocks, not learning noise."
+    return 0
+}
+
 # ── Uninstall ────────────────────────────────────────────────────────────────
 
 if [[ "$MODE" == "uninstall" ]]; then
@@ -267,7 +310,7 @@ apt-get install -y apparmor-utils
 patch_userns_stubs
 echo "  done."
 
-echo "[2/5] Switching all profiles to complain (learning) mode..."
+echo "[2/5] Switching /etc/apparmor.d profiles to complain (learning) mode..."
 # Don't let a single profile's non-zero exit abort the whole setup (pipefail
 # would otherwise propagate aa-complain's status through `| tail`). Capture/warn.
 set +e
@@ -299,6 +342,7 @@ COMPLAIN_COUNT=$(aa-status --count --complaining 2>/dev/null || echo "?")
 ENFORCE_COUNT=$(aa-status --count --enforced 2>/dev/null || echo "?")
 echo "  Profiles in complain mode: $COMPLAIN_COUNT"
 echo "  Profiles still in enforce: $ENFORCE_COUNT"
+report_enforce_holdouts
 echo "  done."
 
 echo "[3/5] Creating reminder/enforce script at $SCRIPT_PATH..."
