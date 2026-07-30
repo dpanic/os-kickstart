@@ -80,6 +80,26 @@ json_escape() {
 # head replacement that doesn't cause SIGPIPE in pipefail pipelines
 first_n() { awk -v n="${1:-5}" 'NR<=n'; }
 
+# Drop stdin lines matching a noise pattern, failing CLOSED on a bad regex.
+# grep exits 1 when nothing survives (legitimate — everything was noise) and 2
+# when the pattern itself is rejected. The plain `... || true` idiom masks both,
+# so one bad pattern silently empties denied_lines and the monitor stops
+# alerting on anything at all. On a regex error keep every line and log it, so
+# the failure surfaces as noise rather than as silence.
+drop_noise() {
+    local input out rc
+    input=$(cat)
+    [[ -z "$input" ]] && return 0
+    out=$(printf '%s\n' "$input" | grep -v "$@" 2>/dev/null)
+    rc=$?
+    if [[ $rc -eq 2 ]]; then
+        logger "apparmor-monitor: filter pattern rejected, keeping all denials: $*"
+        printf '%s' "$input"
+        return 0
+    fi
+    printf '%s' "$out"
+}
+
 # Filter out ignored profile names from stdin (one name per line).
 # Reads glob patterns from IGNORE_FILE; exact entries use string match,
 # patterns with * use awk regex conversion.
@@ -146,7 +166,7 @@ check_violations() {
     # Drop synthetic null-transition stacks (parent//null-/path) — these are
     # complain-mode exec-chain artifacts, not real profile-attributable denials.
     if [[ -n "$denied_lines" ]]; then
-        denied_lines=$(echo "$denied_lines" | grep -v 'profile="[^"]*//null-' || true)
+        denied_lines=$(echo "$denied_lines" | drop_noise 'profile="[^"]*//null-')
     fi
 
     # Drop benign Go-runtime async-preemption signals (SIGURG). Go (1.14+) sends
@@ -156,7 +176,66 @@ check_violations() {
     # it must not raise CRITICAL. Real docker-default denials (file/mount/ptrace)
     # are kept.
     if [[ -n "$denied_lines" ]]; then
-        denied_lines=$(echo "$denied_lines" | grep -v 'operation="signal".*signal=urg' || true)
+        denied_lines=$(echo "$denied_lines" | drop_noise 'operation="signal".*signal=urg')
+    fi
+
+    # Drop POSIX mqueue denials on disconnected IPC paths. "Failed name lookup -
+    # disconnected IPC path" means the kernel could not resolve a name for the
+    # queue, so no mqueue rule can ever match it — an mqueue-mediation artifact,
+    # not a policy decision about a real named resource. A profile-side fix needs
+    # flags=(attach_disconnected) in the profile header, which the packaged stubs
+    # regenerate away. Named-mqueue denials still alert.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" \
+            | drop_noise 'class="posix_mqueue".*info="Failed name lookup - disconnected IPC path"')
+    fi
+
+    # Drop disconnected-path file denials the kernel could not name. Sandbox
+    # launchers (bwrap, Electron/Chromium zygotes) hit these while wiring a user
+    # namespace: the path cannot be reconnected to the profile's namespace root,
+    # so it is reported either as name="" or as an unrooted proc/<pid>/*_map. In
+    # both cases no file rule can ever match, which makes it a mediation artifact
+    # rather than a policy decision — same shape as the mqueue case above.
+    # Deliberately narrow: a disconnected-path denial that DOES carry a resolvable
+    # name still alerts.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" | drop_noise -P \
+            'class="file".*info="Failed name lookup - disconnected path".*name="(proc/[0-9]+/(uid_map|gid_map|setgroups))?"')
+    fi
+
+    # Drop the PASSIVE side of the cross-label ptrace check. denied_mask="readby"
+    # is evaluated against the process being looked AT, not the one looking, so
+    # every /proc walk trips it once per confined target it happens to pass:
+    # ps, pgrep, aa-status, Chrome's ThreadPoolForeg. The userns naming stubs
+    # give nearly every desktop process its own label, which turns an ordinary
+    # `ps` into a burst of these — loupe alone emitted ~130 in five hours (its
+    # glycin/bwrap image loaders linger for hours after the window closes) and
+    # paged CRITICAL on almost every tick; desktop-icons-ng emits the same shape.
+    # Deliberately narrow: only an exact denied_mask="readby" is dropped. The
+    # ACTIVE side, denied_mask="read" — a process reading another's memory —
+    # still alerts, as do trace/tracedby (PTRACE_ATTACH, the shape a debugger or
+    # a memory dump produces). A combined mask does not match this pattern.
+    # Suppressed here rather than granted in /etc/apparmor.d/local/*: on this
+    # apparmor 5.0.0~beta1 host the block is REAL (the read returns EACCES even
+    # though the profile is loaded in complain mode), and the label is reachable
+    # by unprivileged code via LD_PRELOAD and the stubs' `ix` inheritance, so
+    # enforcement stays exactly as shipped and only the paging stops — same
+    # principle as the cupsd filter below.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" | drop_noise 'class="ptrace".*denied_mask="readby"')
+    fi
+
+    # Drop benign CUPS denials. cupsd requests capabilities Ubuntu's profile
+    # deliberately withholds (sys_resource/sys_admin/net_admin) and degrades
+    # gracefully — printing works. cupsd and cups-browsed also read two static,
+    # non-secret files the profile omits: /etc/paperspecs and the coreutils
+    # uucore locale bundle. Suppressed here rather than allowed in
+    # local/usr.sbin.cupsd on purpose: cupsd is network-facing, so enforcement
+    # stays exactly as shipped and only the paging stops. Any other cups denial
+    # — including a capability outside this list — still alerts.
+    if [[ -n "$denied_lines" ]]; then
+        denied_lines=$(echo "$denied_lines" | drop_noise -P \
+            'profile="/usr/sbin/cups(d|-browsed)".*(capname="(sys_resource|sys_admin|net_admin)"|name="(/etc/paperspecs|/usr/share/coreutils/locales/[^"]+)")')
     fi
 
     if [[ -n "$denied_lines" && -f "$IGNORE_FILE" ]]; then
