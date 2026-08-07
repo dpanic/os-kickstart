@@ -96,13 +96,17 @@ if [[ "$UNINSTALL" == true ]]; then
     if want "sysctl"; then
         echo "[REVERT] sysctl..."
         sudo rm -f /etc/modules-load.d/kickstart.conf
+        sudo rm -f /etc/sysctl.d/90-kickstart.conf
+
+        # Older versions of this module overwrote /etc/sysctl.conf. Put the original back
+        # if that backup is still around, so hosts installed before the move end up clean.
         if [[ -f /etc/sysctl.conf.bak-kickstart ]]; then
             sudo cp /etc/sysctl.conf.bak-kickstart /etc/sysctl.conf
-            sudo sysctl -p >/dev/null 2>&1 || true
-            remove "sysctl.conf restored from backup"
-        else
-            skip "no sysctl.conf backup found"
+            remove "legacy /etc/sysctl.conf restored from backup"
         fi
+
+        sudo sysctl --system >/dev/null 2>&1 || true
+        remove "90-kickstart.conf removed from /etc/sysctl.d"
     fi
 
     echo ""
@@ -111,12 +115,27 @@ if [[ "$UNINSTALL" == true ]]; then
     exit 0
 fi
 
-# ── sysctl.conf ───────────────────────────────────────────────────────────────
+# ── sysctl drop-in ────────────────────────────────────────────────────────────
 if want "sysctl"; then
-    next "sysctl.conf"
+    next "90-kickstart.conf"
 
-    backup_file /etc/sysctl.conf
-    sudo cp "$SCRIPT_DIR/sysctl.conf" /etc/sysctl.conf
+    # /etc/sysctl.conf is a dead end: systemd-sysctl only scans /etc/sysctl.d,
+    # /run/sysctl.d, /usr/lib/sysctl.d and /usr/local/lib/sysctl.d, and Ubuntu 26.04
+    # dropped the /etc/sysctl.d/99-sysctl.conf symlink that used to bridge the two.
+    # Everything written there applied once via `sysctl -p` and was gone after a reboot.
+    sudo install -m 644 "$SCRIPT_DIR/90-kickstart.conf" /etc/sysctl.d/90-kickstart.conf
+
+    # Migrate hosts that got the old layout: archive whatever we left in /etc/sysctl.conf
+    # and leave a pointer, rather than deleting it and losing the trail.
+    if [[ -f /etc/sysctl.conf ]] && ! grep -q 'moved to /etc/sysctl.d' /etc/sysctl.conf 2>/dev/null; then
+        sudo cp -a /etc/sysctl.conf /etc/sysctl.conf.pre-sysctld
+        printf '%s\n' \
+            '# kickstart: these settings moved to /etc/sysctl.d/90-kickstart.conf' \
+            '# systemd-sysctl does not read /etc/sysctl.conf.' \
+            '# Previous content archived at /etc/sysctl.conf.pre-sysctld' \
+            | sudo tee /etc/sysctl.conf >/dev/null
+        echo "  migrated: legacy /etc/sysctl.conf archived to /etc/sysctl.conf.pre-sysctld"
+    fi
 
     # Some keys are backed by loadable modules that aren't auto-loaded:
     #   tcp_bbr      -> net.ipv4.tcp_congestion_control = bbr
@@ -126,7 +145,7 @@ if want "sysctl"; then
     sudo modprobe tcp_bbr 2>/dev/null || true
     sudo modprobe nf_conntrack 2>/dev/null || true
 
-    sudo sysctl -p >/dev/null 2>&1 || echo "  warning: some sysctl params may require autotune/reboot"
+    sudo sysctl --system >/dev/null 2>&1 || echo "  warning: some sysctl params may require autotune/reboot"
 
     # Assert the load-bearing optimization actually took -- don't silently stay on cubic.
     _cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "?")
@@ -135,7 +154,7 @@ if want "sysctl"; then
     else
         echo "  WARNING: congestion control is '$_cc', expected bbr (tcp_bbr unavailable on this kernel?)"
     fi
-    echo "  done: /etc/sysctl.conf (from modules/kernel/sysctl.conf)"
+    echo "  done: /etc/sysctl.d/90-kickstart.conf (from modules/kernel/90-kickstart.conf)"
 fi
 
 # ── limits ────────────────────────────────────────────────────────────────────
