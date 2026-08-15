@@ -209,7 +209,9 @@ if want "autotune"; then
 
     sudo cp "$SCRIPT_DIR/autotune.service" /etc/systemd/system/autotune.service
     sudo systemctl daemon-reload
-    sudo systemctl enable autotune.service 2>/dev/null || true
+    # --now: without it the RAM-based ceiling only lands at the next reboot, while the
+    # sysctl --system above has already applied the static file -- that was the race.
+    sudo systemctl enable --now autotune.service 2>/dev/null || true
     echo "  done: /usr/bin/autotune.sh + autotune.service (from modules/kernel/)"
 fi
 
