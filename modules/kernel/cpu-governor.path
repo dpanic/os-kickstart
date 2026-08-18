@@ -1,0 +1,16 @@
+[Unit]
+Description=Re-pin CPU governor when power-profiles-daemon changes profile
+# sysfs has no inotify; PPD persists the profile here, which does.
+BindsTo=kickstart-cpu-governor.service
+After=kickstart-cpu-governor.service power-profiles-daemon.service
+Wants=power-profiles-daemon.service
+
+[Path]
+# sysfs has no inotify; PPD persists the profile here, which does.
+PathChanged=/var/lib/power-profiles-daemon/state.ini
+Unit=kickstart-cpu-governor-reapply.service
+TriggerLimitIntervalSec=2
+TriggerLimitBurst=20
+
+[Install]
+WantedBy=multi-user.target

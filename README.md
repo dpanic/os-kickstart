@@ -62,13 +62,14 @@ go install github.com/dpanic/os-kickstart@latest
 
 | Module | Description |
 |--------|-------------|
-| GNOME Optimize | Disable animations, sounds, hot corners, non-essential extensions |
+| GNOME Optimize | Disable animations, sounds, hot corners; flat mouse accel; faster key repeat |
 | Nautilus Optimize | Restrict Tracker indexing, limit thumbnails, clear cache |
 | AppArmor Setup | Learning mode + Slack reminder after 7 days |
 | Kernel sysctl | Network, memory, conntrack tuning |
 | Kernel limits | File descriptor & process limits |
 | Kernel I/O scheduler | `none` for SSD/NVMe |
 | Kernel autotune | RAM-based dynamic kernel params at boot |
+| Kernel CPU governor | Performance pin, pre-boost freq cap, user RTPRIO (see below) |
 | SSH hardening | OpenSSH server hardening (disables password auth) |
 
 ### Installations
@@ -109,6 +110,23 @@ go install github.com/dpanic/os-kickstart@latest
 | Brave | APT repo |
 | Signal Desktop | APT repo |
 | PeaZip | Archive manager (200+ formats) |
+
+---
+
+## Kernel CPU governor *(Linux, opt-in)*
+
+Pins the CPU for desktop input latency. Skipped on laptop/tablet chassis (types 8, 9, 10, 14, 30–32); override with `KICKSTART_CPU_GOVERNOR=force`.
+
+| Knob | What kickstart does |
+|------|---------------------|
+| Governor | `performance` on every cpufreq policy |
+| Max freq | **Pre-boost only** — ACPI `nominal_freq` (AMD) or `base_frequency` (Intel). Turbo stays unreachable even though global `boost` stays `1` (so power-profiles-daemon can still write per-policy `boost`; `boost=0` makes those writes `EINVAL`) |
+| Min freq | `amd_pstate_lowest_nonlinear_freq` when present, otherwise `cpuinfo_min_freq` |
+| PPD | `powerprofilesctl set performance` |
+| Watcher | `kickstart-cpu-governor.path` re-runs the pin when `/var/lib/power-profiles-daemon/state.ini` changes (sysfs has no inotify) |
+| RTPRIO | `/etc/systemd/user.conf.d/10-kickstart-rtprio.conf` — `DefaultLimitRTPRIO=95`, `DefaultLimitRTTIME=200000` so mutter/pipewire can take realtime via rtkit. **Needs a new login.** |
+
+A handmade `/etc/systemd/system/cpu-freq-cap.service`, if present, is disabled (not deleted). Uninstall stops the units, restores `powersave` + full freq range, sets PPD `balanced`, and removes the RTPRIO drop-in.
 
 ---
 
@@ -176,6 +194,9 @@ Releases are automated via GitHub Actions — push a `v*` tag to create a releas
 - Snap-related AppArmor profiles stay in enforce mode
 - **Uninstall** restores system configs from `.bak-kickstart` backups
 - Docker data (`/var/lib/docker`) is preserved on uninstall
+- CPU governor pin is a no-op on laptops unless `KICKSTART_CPU_GOVERNOR=force`
+- User RTPRIO only applies after the next login; `DefaultLimitRTTIME` still kills a runaway RT thread
+- GNOME uninstall restores mouse accel `default` and keyboard delay/repeat `500`/`30`
 
 ---
 

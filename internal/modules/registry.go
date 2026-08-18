@@ -2,25 +2,25 @@ package modules
 
 // Module describes a selectable item in the TUI menu.
 type Module struct {
-	ID           string   // unique key, e.g. "kernel-sysctl"
-	Script       string   // relative path, e.g. "kernel/optimize.sh"
-	Components   []string // sub-components or nil for standalone
-	Label        string   // display name in menu
-	Description  string   // short description
-	Category     string   // "optimization" or "installation"
-	Subsection   string   // grouping within category (e.g. "Shell", "Dev Tools")
-	OS           string   // "all", "linux", "darwin"
-	NeedsSudo    bool     // invoke with sudo bash
-	InstalledCmd      string // command to check if installed (empty = no check)
-	InstalledCheck    string // file path to check if exists (empty = no check)
-	InstalledGrepFile string // "filepath:pattern" — check if file contains pattern
+	ID                string   // unique key, e.g. "kernel-sysctl"
+	Script            string   // relative path, e.g. "kernel/optimize.sh"
+	Components        []string // sub-components or nil for standalone
+	Label             string   // display name in menu
+	Description       string   // short description
+	Category          string   // "optimization" or "installation"
+	Subsection        string   // grouping within category (e.g. "Shell", "Dev Tools")
+	OS                string   // "all", "linux", "darwin"
+	NeedsSudo         bool     // invoke with sudo bash
+	InstalledCmd      string   // command to check if installed (empty = no check)
+	InstalledCheck    string   // file path to check if exists (empty = no check)
+	InstalledGrepFile string   // "filepath:pattern" — check if file contains pattern
 }
 
 // AllModules returns the full registry, unfiltered.
 func AllModules() []Module {
 	return []Module{
 		// ── Optimizations ──
-		{ID: "gnome", Script: "gnome/optimize.sh", Label: "GNOME Optimize", Description: "disable animations, sounds, hot corners", Category: "optimization", OS: "linux", InstalledCmd: "gsettings"},
+		{ID: "gnome", Script: "gnome/optimize.sh", Label: "GNOME Optimize", Description: "disable animations, sounds, hot corners, flat mouse, faster repeat", Category: "optimization", OS: "linux", InstalledCmd: "gsettings"},
 		{ID: "nautilus", Script: "nautilus/optimize.sh", Label: "Nautilus Optimize", Description: "restrict Tracker, limit thumbnails", Category: "optimization", OS: "linux", InstalledCmd: "nautilus"},
 		{ID: "apparmor", Script: "apparmor/setup.sh", Label: "AppArmor Setup", Description: "learning mode with Slack reminder", Category: "optimization", OS: "linux", NeedsSudo: true, InstalledCmd: "apparmor_status"},
 		{ID: "apparmor-monitor", Script: "apparmor/monitor.sh", Label: "AppArmor Monitor", Description: "continuous violation alerts via Slack", Category: "optimization", OS: "linux", NeedsSudo: true, InstalledCheck: "/etc/systemd/system/apparmor-monitor.timer"},
@@ -29,6 +29,7 @@ func AllModules() []Module {
 		{ID: "kernel-limits", Script: "kernel/optimize.sh", Components: []string{"limits"}, Label: "Kernel ▸ limits", Description: "file descriptor & process limits", Category: "optimization", OS: "linux", InstalledGrepFile: "/etc/security/limits.conf:2097152"},
 		{ID: "kernel-scheduler", Script: "kernel/optimize.sh", Components: []string{"scheduler"}, Label: "Kernel ▸ I/O scheduler", Description: "none (SSD/NVMe)", Category: "optimization", OS: "linux", InstalledCheck: "/etc/udev/rules.d/60-scheduler.rules"},
 		{ID: "kernel-autotune", Script: "kernel/optimize.sh", Components: []string{"autotune"}, Label: "Kernel ▸ autotune", Description: "RAM-based autotune service", Category: "optimization", OS: "linux", InstalledCheck: "/etc/systemd/system/autotune.service"},
+		{ID: "kernel-cpufreq", Script: "kernel/optimize.sh", Components: []string{"cpufreq"}, Label: "Kernel ▸ CPU governor", Description: "performance pin, pre-boost cap, user RTPRIO", Category: "optimization", OS: "linux", InstalledCheck: "/etc/systemd/system/kickstart-cpu-governor.service"},
 		{ID: "sshd", Script: "sshd/setup.sh", Label: "SSH ▸ sshd hardening", Description: "disables password auth", Category: "optimization", OS: "linux", InstalledCmd: "sshd"},
 
 		// ── Installations / Shell ──

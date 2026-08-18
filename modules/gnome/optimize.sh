@@ -14,13 +14,19 @@ parse_update_flag "$@"
 if [[ "$UNINSTALL" == true ]]; then
     echo "=== GNOME Optimization -- Revert ==="
     echo ""
-    echo "[1/2] Re-enabling animations, sounds, hot corners..."
+    echo "[1/3] Re-enabling animations, sounds, hot corners..."
     gsettings set org.gnome.desktop.interface enable-animations true
     gsettings set org.gnome.desktop.sound event-sounds true
     gsettings set org.gnome.desktop.interface enable-hot-corners true
     echo "  done."
 
-    echo "[2/2] Re-enabling all GNOME extensions..."
+    echo "[2/3] Restoring mouse accel and keyboard repeat..."
+    gsettings set org.gnome.desktop.peripherals.mouse accel-profile 'default'
+    gsettings set org.gnome.desktop.peripherals.keyboard delay 500
+    gsettings set org.gnome.desktop.peripherals.keyboard repeat-interval 30
+    echo "  done."
+
+    echo "[3/3] Re-enabling all GNOME extensions..."
     ALL_EXTENSIONS=$(gnome-extensions list 2>/dev/null)
     while IFS= read -r ext; do
         [[ -z "$ext" ]] && continue
@@ -48,13 +54,19 @@ KEEP_EXTENSIONS=(
 echo "=== GNOME Desktop Optimization ==="
 echo ""
 
-echo "[1/3] Disabling animations, event sounds, hot corners..."
+echo "[1/4] Disabling animations, event sounds, hot corners..."
 gsettings set org.gnome.desktop.interface enable-animations false
 gsettings set org.gnome.desktop.sound event-sounds false
 gsettings set org.gnome.desktop.interface enable-hot-corners false
 echo "  done."
 
-echo "[2/3] Disabling non-essential GNOME extensions..."
+echo "[2/4] Flat mouse accel, faster keyboard repeat..."
+gsettings set org.gnome.desktop.peripherals.mouse accel-profile 'flat'
+gsettings set org.gnome.desktop.peripherals.keyboard delay 250
+gsettings set org.gnome.desktop.peripherals.keyboard repeat-interval 20
+echo "  done."
+
+echo "[3/4] Disabling non-essential GNOME extensions..."
 ALL_EXTENSIONS=$(gnome-extensions list 2>/dev/null)
 
 is_kept() {
@@ -81,7 +93,7 @@ while IFS= read -r ext; do
 done <<< "$ALL_EXTENSIONS"
 echo "  $disabled_count extensions disabled."
 
-echo "[3/3] Ensuring kept extensions are enabled..."
+echo "[4/4] Ensuring kept extensions are enabled..."
 for ext in "${KEEP_EXTENSIONS[@]}"; do
     gnome-extensions enable "$ext" 2>/dev/null && echo "  enabled: $ext" || true
 done
