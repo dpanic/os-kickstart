@@ -66,6 +66,37 @@ func TestForOS_IncludesAllAndLinuxOnLinux(t *testing.T) {
 	}
 }
 
+func TestKernelCpufreq_LinuxNoSudo(t *testing.T) {
+	t.Parallel()
+	var found modules.Module
+	ok := false
+	for _, m := range modules.AllModules() {
+		if m.ID == "kernel-cpufreq" {
+			found = m
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		t.Fatal("expected kernel-cpufreq module")
+	}
+	if found.OS != "linux" {
+		t.Errorf("OS = %q, want linux", found.OS)
+	}
+	if found.NeedsSudo {
+		t.Error("NeedsSudo should be false; the script calls sudo itself")
+	}
+	if found.Script != "kernel/optimize.sh" {
+		t.Errorf("Script = %q, want kernel/optimize.sh", found.Script)
+	}
+	if len(found.Components) != 1 || found.Components[0] != "cpufreq" {
+		t.Errorf("Components = %v, want [cpufreq]", found.Components)
+	}
+	if found.InstalledCheck != "/etc/systemd/system/kickstart-cpu-governor.service" {
+		t.Errorf("InstalledCheck = %q", found.InstalledCheck)
+	}
+}
+
 func TestNeedsSudo_AllowedModulesOnly(t *testing.T) {
 	t.Parallel()
 	mods := modules.AllModules()

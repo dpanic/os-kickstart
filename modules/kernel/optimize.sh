@@ -8,7 +8,7 @@ set -euo pipefail
 #
 # Usage:
 #   ./optimize.sh                           # apply all optimizations
-#   ./optimize.sh sysctl limits scheduler   # apply only listed components
+#   ./optimize.sh sysctl limits scheduler cpufreq   # apply only listed components
 #
 # Requires: sudo (all files are system-level)
 
@@ -17,7 +17,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 source "$REPO_DIR/lib.sh"
 
-ALL_COMPONENTS=(sysctl limits scheduler autotune)
+ALL_COMPONENTS=(sysctl limits scheduler autotune cpufreq)
 parse_update_flag "$@"
 COMPONENTS=("${_CLEAN_ARGS[@]}")
 if [[ ${#COMPONENTS[@]} -eq 0 ]]; then
@@ -67,6 +67,25 @@ echo "  Components: ${COMPONENTS[*]}"
 echo ""
 
 if [[ "$UNINSTALL" == true ]]; then
+    if want "cpufreq"; then
+        echo "[REVERT] CPU governor pin..."
+        sudo systemctl disable --now kickstart-cpu-governor.path 2>/dev/null || true
+        sudo systemctl disable --now kickstart-cpu-governor.service 2>/dev/null || true
+        sudo rm -f \
+            /etc/systemd/system/kickstart-cpu-governor.service \
+            /etc/systemd/system/kickstart-cpu-governor-reapply.service \
+            /etc/systemd/system/kickstart-cpu-governor.path \
+            /usr/bin/kickstart-cpu-governor.sh \
+            /etc/systemd/user.conf.d/10-kickstart-rtprio.conf
+        if [[ -f /etc/systemd/user.conf.d/10-rtprio.conf.bak-kickstart ]]; then
+            sudo cp /etc/systemd/user.conf.d/10-rtprio.conf.bak-kickstart \
+                /etc/systemd/user.conf.d/10-rtprio.conf
+        fi
+        sudo systemctl daemon-reload
+        powerprofilesctl set balanced >/dev/null 2>&1 || true
+        remove "CPU governor units + user RTPRIO drop-in removed (re-login to drop RTPRIO)"
+    fi
+
     if want "autotune"; then
         echo "[REVERT] autotune service..."
         sudo systemctl stop autotune.service 2>/dev/null || true
@@ -213,6 +232,35 @@ if want "autotune"; then
     # sysctl --system above has already applied the static file -- that was the race.
     sudo systemctl enable --now autotune.service 2>/dev/null || true
     echo "  done: /usr/bin/autotune.sh + autotune.service (from modules/kernel/)"
+fi
+
+# ── cpufreq ───────────────────────────────────────────────────────────────────
+if want "cpufreq"; then
+    next "CPU governor pin + pre-boost cap + user RTPRIO"
+
+    sudo cp "$SCRIPT_DIR/cpu-governor.sh" /usr/bin/kickstart-cpu-governor.sh
+    sudo chmod +x /usr/bin/kickstart-cpu-governor.sh
+    sudo cp "$SCRIPT_DIR/cpu-governor.service" /etc/systemd/system/kickstart-cpu-governor.service
+    sudo cp "$SCRIPT_DIR/cpu-governor-reapply.service" /etc/systemd/system/kickstart-cpu-governor-reapply.service
+    sudo cp "$SCRIPT_DIR/cpu-governor.path" /etc/systemd/system/kickstart-cpu-governor.path
+
+    sudo mkdir -p /etc/systemd/user.conf.d
+    if [[ -f /etc/systemd/user.conf.d/10-rtprio.conf ]]; then
+        backup_file /etc/systemd/user.conf.d/10-rtprio.conf
+        sudo rm -f /etc/systemd/user.conf.d/10-rtprio.conf
+    fi
+    sudo cp "$SCRIPT_DIR/10-kickstart-rtprio.conf" /etc/systemd/user.conf.d/10-kickstart-rtprio.conf
+
+    if [[ -f /etc/systemd/system/cpu-freq-cap.service ]]; then
+        sudo systemctl disable --now cpu-freq-cap.service 2>/dev/null || true
+        echo "  superseded cpu-freq-cap.service (left on disk, disabled)"
+    fi
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now kickstart-cpu-governor.service 2>/dev/null || true
+    sudo systemctl enable --now kickstart-cpu-governor.path 2>/dev/null || true
+    echo "  done: kickstart-cpu-governor.service + .path + user RTPRIO"
+    echo "  RTPRIO takes effect after the next login (systemd --user rereads limits at session start)."
 fi
 
 echo ""
