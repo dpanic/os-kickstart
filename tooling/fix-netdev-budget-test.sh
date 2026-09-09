@@ -87,7 +87,15 @@ check true "$([ "$live_pos" -lt "$bak_pos" ] && echo true || echo false)" \
     "live key tried before the backup"
 check "$HOME/.ssh/other-vms.bak-20260101" "$SSH_KEY" "backup still usable as a last resort"
 
-echo "TEST 4 -- .pub, known_hosts and config are never offered as identities"
+echo "TEST 4 -- keys one level deep (~/.ssh/old/) are found too"
+restore; setup_home site-vms
+mkdir -p "$HOME/.ssh/old"
+printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\nstub\n' >"$HOME/.ssh/old/id_ed25519"
+ACCEPT="user|$HOME/.ssh/old/id_ed25519"
+run_discover probe
+check "$HOME/.ssh/old/id_ed25519" "$SSH_KEY" "nested key discovered"
+
+echo "TEST 5 -- .pub, known_hosts and config are never offered as identities"
 restore; setup_home site-vms
 ACCEPT="nobody|nothing"
 run_discover probe
@@ -97,7 +105,7 @@ for t in "${TRIED[@]}"; do
 done
 check 0 "$bad" "no non-key file was passed to ssh -i"
 
-echo "TEST 5 -- an explicit --user narrows the search instead of widening it"
+echo "TEST 6 -- an explicit --user narrows the search instead of widening it"
 restore; setup_home site-vms
 SSH_USER="squid"; ACCEPT="squid|$HOME/.ssh/site-vms"
 run_discover probe
@@ -107,7 +115,7 @@ for t in "${TRIED[@]}"; do
 done
 check 0 "$other" "only the requested account is attempted"
 
-echo "TEST 6 -- nothing authenticates: report it, do not pin a random key"
+echo "TEST 7 -- nothing authenticates: report it, do not pin a random key"
 restore; setup_home site-vms
 ACCEPT="nobody|nothing"
 run_discover probe
