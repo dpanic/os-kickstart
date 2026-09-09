@@ -33,7 +33,7 @@ set -euo pipefail
 # Options:
 #   --guest-suffix SUF   inventory marker, default "-s1" (sites differ)
 #   --key PATH           ssh identity; default: the site key next to /root/.ssh
-#   --user USER          ssh user on the guests, default "user"
+#   --user USER          ssh user; --user '' defers to ~/.ssh/config (mixed-account fleets)
 #   --jobs N             parallelism, default 8
 #   --yes                skip the confirmation prompt before --apply/--revert
 
@@ -61,7 +61,7 @@ while [ $# -gt 0 ]; do
         --hosts)             HOSTS_CSV="${2:?--hosts needs a list}"; shift ;;
         --guest-suffix)      GUEST_SUFFIX="${2:?--guest-suffix needs a value}"; shift ;;
         --key)               SSH_KEY="${2:?--key needs a path}"; shift ;;
-        --user)              SSH_USER="${2:?--user needs a name}"; shift ;;
+        --user)              SSH_USER="${2?--user needs a value}"; shift ;;
         --jobs)              JOBS="${2:?--jobs needs a number}"; shift ;;
         --yes|-y)            ASSUME_YES=true ;;
         -h|--help)           sed -n '3,40p' "$0"; exit 0 ;;
@@ -179,11 +179,19 @@ ssh_opts() {
     return 0
 }
 
+# `--user ''` leaves the login to ~/.ssh/config. A hand-maintained fleet does not use
+# one account everywhere -- the proxies log in as a service account and the rest as an
+# operator -- and hardcoding a user here would silently connect as the wrong one.
+ssh_target() { if [ -n "$SSH_USER" ]; then printf '%s@%s\n' "$SSH_USER" "$1"; else printf '%s\n' "$1"; fi; }
+
 run_one() {
     local host="$1" out rc
     mapfile -t OPTS < <(ssh_opts)
-    out=$(remote_payload | timeout 60 ssh "${OPTS[@]}" "$SSH_USER@$host" \
-        "sudo bash -s -- '$MODE' '$STAMP'" 2>&1) && rc=0 || rc=$?
+    # Proxmox hosts are logged into as root and ship no sudo at all, so asking for it
+    # unconditionally fails on exactly the machine the script is meant to run from.
+    out=$(remote_payload | timeout 60 ssh "${OPTS[@]}" "$(ssh_target "$host")" \
+        "if [ \"\$(id -u)\" -eq 0 ]; then bash -s -- '$MODE' '$STAMP'; else sudo bash -s -- '$MODE' '$STAMP'; fi" \
+        2>&1) && rc=0 || rc=$?
     if printf '%s' "$out" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED'; then
         printf '%s\tKEYCHANGED\t%s\n' "$host" "host key changed; not touched"
         return 0
@@ -194,7 +202,7 @@ run_one() {
     fi
     printf '%s\t%s\n' "$host" "$(printf '%s' "$out" | tr '\n' ' ')"
 }
-export -f run_one remote_payload ssh_opts
+export -f run_one remote_payload ssh_opts ssh_target
 export MODE SSH_USER SSH_KEY
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -203,7 +211,7 @@ export STAMP
 mapfile -t FLEET < <(resolve_inventory)
 [ "${#FLEET[@]}" -gt 0 ] || die "inventory is empty (suffix '$GUEST_SUFFIX'?)"
 
-log "${CYAN}=== fix-netdev-budget: mode=$MODE hosts=${#FLEET[@]} user=$SSH_USER ===${NC}"
+log "${CYAN}=== fix-netdev-budget: mode=$MODE hosts=${#FLEET[@]} user=${SSH_USER:-<ssh_config>} ===${NC}"
 printf '  %s\n' "${FLEET[@]}"
 log ""
 
@@ -214,7 +222,7 @@ if [ "$REFRESH_KEYS" = true ]; then
         mapfile -t OPTS < <(ssh_opts)
         # Capture, do not pipe: ssh exits 255 on a rejected host key, and under
         # `set -o pipefail` that poisons `ssh ... | grep -q` so the test never fires.
-        probe=$(timeout 20 ssh "${OPTS[@]}" "$SSH_USER@$h" true 2>&1) || true
+        probe=$(timeout 20 ssh "${OPTS[@]}" "$(ssh_target "$h")" true 2>&1) || true
         printf '%s' "$probe" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED' || continue
         # known_hosts is hashed, and the entry may be filed under the address rather
         # than the name, so retire both. -R exits 0 even when nothing matched.
@@ -222,7 +230,7 @@ if [ "$REFRESH_KEYS" = true ]; then
         ip=$(getent hosts "$h" 2>/dev/null | awk '{print $1; exit}')
         [ -n "$ip" ] && ssh-keygen -R "$ip" >/dev/null 2>&1 || true
         # Prove it: a second probe must no longer report a changed key.
-        probe=$(timeout 20 ssh "${OPTS[@]}" "$SSH_USER@$h" true 2>&1) || true
+        probe=$(timeout 20 ssh "${OPTS[@]}" "$(ssh_target "$h")" true 2>&1) || true
         if printf '%s' "$probe" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED'; then
             log "  ${RED}still changed${NC} $h -- entry not matched by ssh-keygen -R"
         else
