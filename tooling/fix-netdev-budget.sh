@@ -19,53 +19,48 @@ set -euo pipefail
 #
 # Deleting the line does NOT reset a running host, so this restores the runtime value too.
 #
-# Run it ON the Proxmox host of a site (inventory comes from the managed block of
-# /etc/hosts), or anywhere with --hosts.
+# Run it ON the Proxmox host of a site. Inventory, SSH identity and stale host keys are
+# all worked out on their own.
 #
-# Usage:
-#   ./fix-netdev-budget.sh                          # dry-run over the resolved inventory
-#   ./fix-netdev-budget.sh --apply
-#   ./fix-netdev-budget.sh --revert                 # restore the newest backup + 30000/6000
-#   ./fix-netdev-budget.sh --single storm-s1.lan
-#   ./fix-netdev-budget.sh --hosts box1,box2,storage
-#   ./fix-netdev-budget.sh --refresh-host-keys      # ssh-keygen -R for changed keys only
+#   ./fix-netdev-budget.sh            show what would change, touch nothing
+#   ./fix-netdev-budget.sh --apply    remove the keys, restore the kernel defaults
+#   ./fix-netdev-budget.sh --revert   put the previous file and values back
 #
-# Options:
-#   --guest-suffix SUF   inventory marker, default "-s1" (sites differ)
-#   --key PATH           ssh identity; default: the site key next to /root/.ssh
-#   --user USER          ssh user; --user '' defers to ~/.ssh/config (mixed-account fleets)
-#   --jobs N             parallelism, default 8
-#   --yes                skip the confirmation prompt before --apply/--revert
+# Escape hatches, none of them needed on a normal run:
+#   --hosts a,b,c / --single H   bypass the /etc/hosts inventory
+#   --guest-suffix SUF           inventory marker, default "-s1"
+#   --key PATH                   pin the identity instead of discovering it
+#   --user USER                  force the login; default defers to ~/.ssh/config
+#   --jobs N                     parallelism, default 8
+#   --yes                        skip the confirmation prompt
 
 RED="\033[0;31m"; GREEN="\033[0;32m"; YELLOW="\033[1;33m"; CYAN="\033[0;36m"; NC="\033[0m"
 
 MODE="report"
 GUEST_SUFFIX="-s1"
 SSH_KEY=""
-SSH_USER="user"
+SSH_USER=""
 JOBS=8
 SINGLE=""
 HOSTS_CSV=""
 ASSUME_YES=false
-REFRESH_KEYS=false
 
 log() { echo -e "$@"; }
 die() { echo -e "${RED}ERROR:${NC} $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --apply)             MODE="apply" ;;
-        --revert)            MODE="revert" ;;
-        --refresh-host-keys) REFRESH_KEYS=true ;;
-        --single)            SINGLE="${2:?--single needs a host}"; shift ;;
-        --hosts)             HOSTS_CSV="${2:?--hosts needs a list}"; shift ;;
-        --guest-suffix)      GUEST_SUFFIX="${2:?--guest-suffix needs a value}"; shift ;;
-        --key)               SSH_KEY="${2:?--key needs a path}"; shift ;;
-        --user)              SSH_USER="${2?--user needs a value}"; shift ;;
-        --jobs)              JOBS="${2:?--jobs needs a number}"; shift ;;
-        --yes|-y)            ASSUME_YES=true ;;
-        -h|--help)           sed -n '3,40p' "$0"; exit 0 ;;
-        *)                   die "unknown argument: $1" ;;
+        --apply)        MODE="apply" ;;
+        --revert)       MODE="revert" ;;
+        --single)       SINGLE="${2:?--single needs a host}"; shift ;;
+        --hosts)        HOSTS_CSV="${2:?--hosts needs a list}"; shift ;;
+        --guest-suffix) GUEST_SUFFIX="${2:?--guest-suffix needs a value}"; shift ;;
+        --key)          SSH_KEY="${2:?--key needs a path}"; shift ;;
+        --user)         SSH_USER="${2?--user needs a value}"; shift ;;
+        --jobs)         JOBS="${2:?--jobs needs a number}"; shift ;;
+        --yes|-y)       ASSUME_YES=true ;;
+        -h|--help)      sed -n '3,35p' "$0"; exit 0 ;;
+        *)              die "unknown argument: $1" ;;
     esac
     shift
 done
@@ -169,32 +164,46 @@ PAYLOAD
 }
 
 # ── ssh ───────────────────────────────────────────────────────────────────────
-# accept-new adds a host we have never seen, but still REFUSES a key that changed.
-# That refusal is the point: guests get rebuilt and their host keys legitimately
-# change, and silently trusting the new one would defeat the check. --refresh-host-keys
-# is the deliberate, logged way to accept it.
 ssh_opts() {
     printf '%s\n' -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new
     [ -n "$SSH_KEY" ] && printf '%s\n' -i "$SSH_KEY" -o IdentitiesOnly=yes
     return 0
 }
 
-# `--user ''` leaves the login to ~/.ssh/config. A hand-maintained fleet does not use
-# one account everywhere -- the proxies log in as a service account and the rest as an
-# operator -- and hardcoding a user here would silently connect as the wrong one.
+# An empty SSH_USER leaves the login to ~/.ssh/config. A hand-maintained fleet does not
+# use one account -- proxies log in as a service account, guests as an operator -- and
+# hardcoding one silently connects as the wrong user.
 ssh_target() { if [ -n "$SSH_USER" ]; then printf '%s@%s\n' "$SSH_USER" "$1"; else printf '%s\n' "$1"; fi; }
+
+# Proxmox hosts are logged into as root and ship no sudo at all, so asking for it
+# unconditionally fails on the very machine this is meant to be run from.
+remote_cmd() {
+    printf 'if [ "$(id -u)" -eq 0 ]; then bash -s -- %q %q; else sudo bash -s -- %q %q; fi' \
+        "$MODE" "$STAMP" "$MODE" "$STAMP"
+}
+
+# Retire a host key that no longer matches. Guests do get rebuilt and their host keys
+# legitimately change -- but a changed key is also exactly what a MITM looks like, so
+# the old and new fingerprints are recorded and printed at the end. Automatic, but not
+# silent: the evidence outlives the run.
+retire_host_key() {
+    local h="$1" ip old new
+    old=$(ssh-keygen -F "$h" 2>/dev/null | awk '!/^#/{print $3}' | head -c 24)
+    ssh-keygen -R "$h" >/dev/null 2>&1 || true
+    ip=$(getent hosts "$h" 2>/dev/null | awk '{print $1; exit}')
+    [ -n "$ip" ] && { ssh-keygen -R "$ip" >/dev/null 2>&1 || true; }
+    new=$(ssh-keyscan -T 5 "$h" 2>/dev/null | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' | head -1)
+    printf '%s%s  was=%s...  now=%s\n' \
+        "$h" "${ip:+ ($ip)}" "${old:-unknown}" "${new:-unknown}" >>"$KEYLOG"
+}
 
 run_one() {
     local host="$1" out rc
     mapfile -t OPTS < <(ssh_opts)
-    # Proxmox hosts are logged into as root and ship no sudo at all, so asking for it
-    # unconditionally fails on exactly the machine the script is meant to run from.
-    out=$(remote_payload | timeout 60 ssh "${OPTS[@]}" "$(ssh_target "$host")" \
-        "if [ \"\$(id -u)\" -eq 0 ]; then bash -s -- '$MODE' '$STAMP'; else sudo bash -s -- '$MODE' '$STAMP'; fi" \
-        2>&1) && rc=0 || rc=$?
+    out=$(remote_payload | timeout 60 ssh "${OPTS[@]}" "$(ssh_target "$host")" "$(remote_cmd)" 2>&1) && rc=0 || rc=$?
     if printf '%s' "$out" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED'; then
-        printf '%s\tKEYCHANGED\t%s\n' "$host" "host key changed; not touched"
-        return 0
+        retire_host_key "$host"
+        out=$(remote_payload | timeout 60 ssh "${OPTS[@]}" "$(ssh_target "$host")" "$(remote_cmd)" 2>&1) && rc=0 || rc=$?
     fi
     if [ "$rc" -ne 0 ] && ! printf '%s' "$out" | grep -qE '^(OK|FAIL|TODO|CLEAN|REVERTED)'; then
         printf '%s\tUNREACHABLE\t%s\n' "$host" "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)"
@@ -202,68 +211,118 @@ run_one() {
     fi
     printf '%s\t%s\n' "$host" "$(printf '%s' "$out" | tr '\n' ' ')"
 }
-export -f run_one remote_payload ssh_opts ssh_target
-export MODE SSH_USER SSH_KEY
 
-STAMP="$(date +%Y%m%d-%H%M%S)"
-export STAMP
+# Which login opens these hosts? Site keys have non-default names (…-vms) that ssh never
+# offers on its own, and /root/.ssh/config is hand-written -- setup-proxmox-hosts.sh does
+# not create it, so a site may have no stanza at all. The operator should not have to
+# know either the key or the account, so probe for both against one live host.
+#
+# Each attempt is its own connection, so sshd's MaxAuthTries (6) is not a concern; the
+# cost is wall clock, which is why the probe timeout is short and the loop stops at the
+# first success. Order matters: whatever ssh already does is tried first so a working
+# setup is never second-guessed, then the site accounts, and backup keys last -- a .bak
+# key can still authenticate somewhere and would otherwise be preferred over the live one.
+try_login() {
+    local user="$1" key="$2" probe="$3" tgt
+    if [ -n "$user" ]; then tgt="$user@$probe"; else tgt="$probe"; fi
+    if [ -n "$key" ]; then
+        timeout 12 ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new \
+            -i "$key" -o IdentitiesOnly=yes "$tgt" true >/dev/null 2>&1
+    else
+        timeout 12 ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new \
+            "$tgt" true >/dev/null 2>&1
+    fi
+}
 
-mapfile -t FLEET < <(resolve_inventory)
-[ "${#FLEET[@]}" -gt 0 ] || die "inventory is empty (suffix '$GUEST_SUFFIX'?)"
+discover_login() {
+    local probe="$1" k u cands=() bak=() keys=() users=()
+    if [ -n "$SSH_KEY" ]; then log "  login: ${SSH_USER:+$SSH_USER@}<host> key=$SSH_KEY (pinned)"; return; fi
 
-log "${CYAN}=== fix-netdev-budget: mode=$MODE hosts=${#FLEET[@]} user=${SSH_USER:-<ssh_config>} ===${NC}"
-printf '  %s\n' "${FLEET[@]}"
-log ""
+    if try_login "$SSH_USER" "" "$probe"; then
+        log "  login: ${SSH_USER:-<ssh_config>} via ssh-agent / ~/.ssh/config"
+        return
+    fi
 
-if [ "$REFRESH_KEYS" = true ]; then
-    log "${YELLOW}--refresh-host-keys: removing changed host keys${NC}"
-    refreshed=0
-    for h in "${FLEET[@]}"; do
-        mapfile -t OPTS < <(ssh_opts)
-        # Capture, do not pipe: ssh exits 255 on a rejected host key, and under
-        # `set -o pipefail` that poisons `ssh ... | grep -q` so the test never fires.
-        probe=$(timeout 20 ssh "${OPTS[@]}" "$(ssh_target "$h")" true 2>&1) || true
-        printf '%s' "$probe" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED' || continue
-        # known_hosts is hashed, and the entry may be filed under the address rather
-        # than the name, so retire both. -R exits 0 even when nothing matched.
-        ssh-keygen -R "$h" >/dev/null 2>&1 || true
-        ip=$(getent hosts "$h" 2>/dev/null | awk '{print $1; exit}')
-        [ -n "$ip" ] && ssh-keygen -R "$ip" >/dev/null 2>&1 || true
-        # Prove it: a second probe must no longer report a changed key.
-        probe=$(timeout 20 ssh "${OPTS[@]}" "$(ssh_target "$h")" true 2>&1) || true
-        if printf '%s' "$probe" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED'; then
-            log "  ${RED}still changed${NC} $h -- entry not matched by ssh-keygen -R"
-        else
-            log "  ${YELLOW}removed${NC} $h${ip:+ (and $ip)}"
-            refreshed=$((refreshed + 1))
-        fi
+    for k in "$HOME"/.ssh/*; do
+        [ -f "$k" ] || continue
+        case "$k" in *.pub|*known_hosts*|*/config*|*authorized_keys*) continue ;; esac
+        grep -qs 'PRIVATE KEY' "$k" || continue
+        case "$k" in *.bak*|*~) bak+=("$k") ;; *) cands+=("$k") ;; esac
     done
-    log "  $refreshed host key(s) retired"
+    keys=("" ${cands[@]+"${cands[@]}"} ${bak[@]+"${bak[@]}"})
+    # "" keeps whatever ssh_config says; `user` is the cloud-init CIUSER these sites
+    # deploy with; root covers a hypervisor probing itself.
+    if [ -n "$SSH_USER" ]; then users=("$SSH_USER"); else users=("" user root ubuntu debian); fi
+
+    for u in "${users[@]}"; do
+        for k in "${keys[@]}"; do
+            [ -z "$u" ] && [ -z "$k" ] && continue   # already tried above
+            if try_login "$u" "$k" "$probe"; then
+                SSH_USER="$u"; SSH_KEY="$k"
+                log "  login: ${u:-<ssh_config>}@<host>${k:+ key=$k} (discovered)"
+                return
+            fi
+        done
+    done
+    log "  ${YELLOW}login: nothing authenticated against $probe; falling back to ssh defaults${NC}"
+}
+
+main() {
+    STAMP="$(date +%Y%m%d-%H%M%S)"
+    KEYLOG="$(mktemp)"
+    trap 'rm -f "$KEYLOG"' EXIT
+
+    mapfile -t FLEET < <(resolve_inventory)
+    [ "${#FLEET[@]}" -gt 0 ] || die "inventory is empty (suffix '$GUEST_SUFFIX'?)"
+
+    log "${CYAN}=== fix-netdev-budget: mode=$MODE hosts=${#FLEET[@]} ===${NC}"
+    printf '  %s\n' "${FLEET[@]}"
     log ""
+
+    # A changed host key blocks the identity probe too, so clear the probe host first.
+    # Capture, never pipe: ssh exits 255 on a rejected key and `set -o pipefail` would make
+    # `ssh ... | grep -q` false in precisely the case being tested for.
+    probe_host="${FLEET[0]}"
+    mapfile -t OPTS < <(ssh_opts)
+    probe_out=$(timeout 15 ssh "${OPTS[@]}" "$(ssh_target "$probe_host")" true 2>&1) || true
+    printf '%s' "$probe_out" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED' && retire_host_key "$probe_host"
+    discover_login "$probe_host"
+    export MODE SSH_USER SSH_KEY STAMP KEYLOG
+    export -f run_one remote_payload ssh_opts ssh_target remote_cmd retire_host_key
+    log ""
+
+    if [ "$MODE" != "report" ] && [ "$ASSUME_YES" != true ]; then
+        log "${YELLOW}About to run '$MODE' on the ${#FLEET[@]} hosts listed above.${NC}"
+        read -r -p "Type yes to continue: " ans
+        [ "$ans" = "yes" ] || die "aborted"
+    fi
+
+    RESULTS=$(printf '%s\n' "${FLEET[@]}" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {})
+
+    if [ -s "$KEYLOG" ]; then
+        log "${YELLOW}=== host keys retired -- audit these ===${NC}"
+        sed 's/^/  /' "$KEYLOG"
+        log ""
+    fi
+
+    log "${CYAN}=== results ===${NC}"
+    printf '%s\n' "$RESULTS" | sort | while IFS=$'\t' read -r host rest; do
+        case "$rest" in
+            OK*|CLEAN*|REVERTED*) printf "  ${GREEN}%-20s${NC} %s\n" "$host" "$rest" ;;
+            TODO*)                printf "  ${YELLOW}%-20s${NC} %s\n" "$host" "$rest" ;;
+            *)                    printf "  ${RED}%-20s${NC} %s\n" "$host" "$rest" ;;
+        esac
+    done
+
+    fails=$(printf '%s\n' "$RESULTS" | grep -cE $'\t'"(FAIL|UNREACHABLE)" || true)
+    log ""
+    if [ "$fails" -gt 0 ]; then
+        log "${RED}$fails host(s) failed or were unreachable.${NC}"
+        exit 1
+    fi
+    log "${GREEN}all ${#FLEET[@]} host(s) ok${NC}"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main
 fi
-
-if [ "$MODE" != "report" ] && [ "$ASSUME_YES" != true ]; then
-    log "${YELLOW}About to run '$MODE' on the ${#FLEET[@]} hosts listed above.${NC}"
-    read -r -p "Type yes to continue: " ans
-    [ "$ans" = "yes" ] || die "aborted"
-fi
-
-RESULTS=$(printf '%s\n' "${FLEET[@]}" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {})
-
-log "${CYAN}=== results ===${NC}"
-printf '%s\n' "$RESULTS" | sort | while IFS=$'\t' read -r host rest; do
-    case "$rest" in
-        OK*|CLEAN*|REVERTED*) printf "  ${GREEN}%-20s${NC} %s\n" "$host" "$rest" ;;
-        TODO*)                printf "  ${YELLOW}%-20s${NC} %s\n" "$host" "$rest" ;;
-        *)                    printf "  ${RED}%-20s${NC} %s\n" "$host" "$rest" ;;
-    esac
-done
-
-fails=$(printf '%s\n' "$RESULTS" | grep -cE $'\t'"(FAIL|UNREACHABLE|KEYCHANGED)" || true)
-log ""
-if [ "$fails" -gt 0 ]; then
-    log "${RED}$fails host(s) failed, unreachable, or have a changed host key.${NC}"
-    [ "$MODE" = "report" ] && log "Changed keys: re-run with --refresh-host-keys after confirming the rebuild was expected."
-    exit 1
-fi
-log "${GREEN}all ${#FLEET[@]} host(s) ok${NC}"
