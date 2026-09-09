@@ -69,7 +69,7 @@ go install github.com/dpanic/os-kickstart@latest
 | Kernel limits | File descriptor & process limits |
 | Kernel I/O scheduler | `none` for SSD/NVMe |
 | Kernel autotune | RAM-based dynamic kernel params at boot |
-| Kernel CPU governor | Performance pin, pre-boost freq cap, user RTPRIO (see below) |
+| Kernel CPU governor | Performance pin, pre-boost freq cap, user RTTIME (see below) |
 | SSH hardening | OpenSSH server hardening (disables password auth) |
 
 ### Installations
@@ -124,9 +124,11 @@ Pins the CPU for desktop input latency. Skipped on laptop/tablet chassis (types 
 | Min freq | `amd_pstate_lowest_nonlinear_freq` when present, otherwise `cpuinfo_min_freq` |
 | PPD | `powerprofilesctl set performance` |
 | Watcher | `kickstart-cpu-governor.path` re-runs the pin when `/var/lib/power-profiles-daemon/state.ini` changes (sysfs has no inotify) |
-| RTPRIO | `/etc/systemd/user.conf.d/10-kickstart-rtprio.conf` — `DefaultLimitRTPRIO=95`, `DefaultLimitRTTIME=200000` so mutter/pipewire can take realtime via rtkit. **Needs a new login.** |
+| RTTIME | `/etc/systemd/user.conf.d/10-kickstart-rttime.conf` — `DefaultLimitRTTIME=200000`. rtkit refuses a realtime request from a client whose `RLIMIT_RTTIME` is infinity, and systemd's default *is* infinity, so this is what lets pipewire get RT at all. It also turns a runaway RT thread into `SIGXCPU`/`SIGKILL` instead of a pinned core. **Needs a reboot when `loginctl show-user $UID -p Linger` is `yes`, otherwise a new login.** |
 
-A handmade `/etc/systemd/system/cpu-freq-cap.service`, if present, is disabled (not deleted). Uninstall stops the units, restores `powersave` + full freq range, sets PPD `balanced`, and removes the RTPRIO drop-in.
+No `DefaultLimitRTPRIO`. It is not needed — rtkit holds `CAP_SYS_NICE` and grants `SCHED_RR` regardless of the client's `RLIMIT_RTPRIO` — and it cannot work from `user.conf.d` anyway: the user manager inherits a hard limit of `0` from `user@.service` and cannot raise its own hard limit, so systemd clamps it. `systemctl --user show -p DefaultLimitRTPRIO` reports `95` while `/proc/<pid>/limits` still reads `0`. Setting it for real (from `/etc/systemd/system/user@.service.d/`) would grant every process in the session `SCHED_FIFO` up to 95 — above every threaded IRQ handler at FIFO 50 — for no benefit.
+
+A handmade `/etc/systemd/system/cpu-freq-cap.service`, if present, is disabled (not deleted). Uninstall stops the units, restores `powersave` + full freq range, sets PPD `balanced`, removes the RTTIME drop-in, and prints how to re-enable your `cpu-freq-cap.service`.
 
 ---
 
@@ -195,7 +197,7 @@ Releases are automated via GitHub Actions — push a `v*` tag to create a releas
 - **Uninstall** restores system configs from `.bak-kickstart` backups
 - Docker data (`/var/lib/docker`) is preserved on uninstall
 - CPU governor pin is a no-op on laptops unless `KICKSTART_CPU_GOVERNOR=force`
-- User RTPRIO only applies after the next login; `DefaultLimitRTTIME` still kills a runaway RT thread
+- User RTTIME needs a reboot when linger is on (`user@UID.service` survives logout), else a new login; it bounds a runaway RT thread with `SIGXCPU`/`SIGKILL`
 - GNOME uninstall restores mouse accel `default` and keyboard delay/repeat `500`/`30`
 
 ---
