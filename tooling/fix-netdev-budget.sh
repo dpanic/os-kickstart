@@ -209,13 +209,28 @@ log ""
 
 if [ "$REFRESH_KEYS" = true ]; then
     log "${YELLOW}--refresh-host-keys: removing changed host keys${NC}"
+    refreshed=0
     for h in "${FLEET[@]}"; do
         mapfile -t OPTS < <(ssh_opts)
-        if timeout 20 ssh "${OPTS[@]}" "$SSH_USER@$h" true 2>&1 |
-           grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED'; then
-            ssh-keygen -R "$h" >/dev/null 2>&1 && log "  ${YELLOW}removed${NC} $h"
+        # Capture, do not pipe: ssh exits 255 on a rejected host key, and under
+        # `set -o pipefail` that poisons `ssh ... | grep -q` so the test never fires.
+        probe=$(timeout 20 ssh "${OPTS[@]}" "$SSH_USER@$h" true 2>&1) || true
+        printf '%s' "$probe" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED' || continue
+        # known_hosts is hashed, and the entry may be filed under the address rather
+        # than the name, so retire both. -R exits 0 even when nothing matched.
+        ssh-keygen -R "$h" >/dev/null 2>&1 || true
+        ip=$(getent hosts "$h" 2>/dev/null | awk '{print $1; exit}')
+        [ -n "$ip" ] && ssh-keygen -R "$ip" >/dev/null 2>&1 || true
+        # Prove it: a second probe must no longer report a changed key.
+        probe=$(timeout 20 ssh "${OPTS[@]}" "$SSH_USER@$h" true 2>&1) || true
+        if printf '%s' "$probe" | grep -q 'REMOTE HOST IDENTIFICATION HAS CHANGED'; then
+            log "  ${RED}still changed${NC} $h -- entry not matched by ssh-keygen -R"
+        else
+            log "  ${YELLOW}removed${NC} $h${ip:+ (and $ip)}"
+            refreshed=$((refreshed + 1))
         fi
     done
+    log "  $refreshed host key(s) retired"
     log ""
 fi
 
