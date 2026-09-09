@@ -29,7 +29,7 @@ func AllModules() []Module {
 		{ID: "kernel-limits", Script: "kernel/optimize.sh", Components: []string{"limits"}, Label: "Kernel ▸ limits", Description: "file descriptor & process limits", Category: "optimization", OS: "linux", InstalledGrepFile: "/etc/security/limits.conf:2097152"},
 		{ID: "kernel-scheduler", Script: "kernel/optimize.sh", Components: []string{"scheduler"}, Label: "Kernel ▸ I/O scheduler", Description: "none (SSD/NVMe)", Category: "optimization", OS: "linux", InstalledCheck: "/etc/udev/rules.d/60-scheduler.rules"},
 		{ID: "kernel-autotune", Script: "kernel/optimize.sh", Components: []string{"autotune"}, Label: "Kernel ▸ autotune", Description: "RAM-based autotune service", Category: "optimization", OS: "linux", InstalledCheck: "/etc/systemd/system/autotune.service"},
-		{ID: "kernel-cpufreq", Script: "kernel/optimize.sh", Components: []string{"cpufreq"}, Label: "Kernel ▸ CPU governor", Description: "performance pin, pre-boost cap, user RTPRIO", Category: "optimization", OS: "linux", InstalledCheck: "/etc/systemd/system/kickstart-cpu-governor.service"},
+		{ID: "kernel-cpufreq", Script: "kernel/optimize.sh", Components: []string{"cpufreq"}, Label: "Kernel ▸ CPU governor", Description: "performance pin, pre-boost cap, user RTTIME", Category: "optimization", OS: "linux", InstalledCheck: "/etc/systemd/system/kickstart-cpu-governor.service"},
 		{ID: "sshd", Script: "sshd/setup.sh", Label: "SSH ▸ sshd hardening", Description: "disables password auth", Category: "optimization", OS: "linux", InstalledCmd: "sshd"},
 
 		// ── Installations / Shell ──

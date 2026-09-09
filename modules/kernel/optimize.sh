@@ -76,6 +76,7 @@ if [[ "$UNINSTALL" == true ]]; then
             /etc/systemd/system/kickstart-cpu-governor-reapply.service \
             /etc/systemd/system/kickstart-cpu-governor.path \
             /usr/bin/kickstart-cpu-governor.sh \
+            /etc/systemd/user.conf.d/10-kickstart-rttime.conf \
             /etc/systemd/user.conf.d/10-kickstart-rtprio.conf
         if [[ -f /etc/systemd/user.conf.d/10-rtprio.conf.bak-kickstart ]]; then
             sudo cp /etc/systemd/user.conf.d/10-rtprio.conf.bak-kickstart \
@@ -83,7 +84,13 @@ if [[ "$UNINSTALL" == true ]]; then
         fi
         sudo systemctl daemon-reload
         powerprofilesctl set balanced >/dev/null 2>&1 || true
-        remove "CPU governor units + user RTPRIO drop-in removed (re-login to drop RTPRIO)"
+        # Install disables it but leaves it on disk; it is the user's file, so point at it
+        # rather than re-enabling something that would fight a fresh install.
+        if [[ -f /etc/systemd/system/cpu-freq-cap.service ]]; then
+            echo "  note: kickstart disabled your cpu-freq-cap.service; restore with"
+            echo "        sudo systemctl enable --now cpu-freq-cap.service"
+        fi
+        remove "CPU governor units + user RTTIME drop-in removed (reboot to drop RTTIME)"
     fi
 
     if want "autotune"; then
@@ -236,20 +243,22 @@ fi
 
 # ── cpufreq ───────────────────────────────────────────────────────────────────
 if want "cpufreq"; then
-    next "CPU governor pin + pre-boost cap + user RTPRIO"
+    next "CPU governor pin + pre-boost cap + user RTTIME"
 
-    sudo cp "$SCRIPT_DIR/cpu-governor.sh" /usr/bin/kickstart-cpu-governor.sh
-    sudo chmod +x /usr/bin/kickstart-cpu-governor.sh
-    sudo cp "$SCRIPT_DIR/cpu-governor.service" /etc/systemd/system/kickstart-cpu-governor.service
-    sudo cp "$SCRIPT_DIR/cpu-governor-reapply.service" /etc/systemd/system/kickstart-cpu-governor-reapply.service
-    sudo cp "$SCRIPT_DIR/cpu-governor.path" /etc/systemd/system/kickstart-cpu-governor.path
+    sudo install -m 755 "$SCRIPT_DIR/cpu-governor.sh" /usr/bin/kickstart-cpu-governor.sh
+    sudo install -m 644 "$SCRIPT_DIR/cpu-governor.service" /etc/systemd/system/kickstart-cpu-governor.service
+    sudo install -m 644 "$SCRIPT_DIR/cpu-governor-reapply.service" /etc/systemd/system/kickstart-cpu-governor-reapply.service
+    sudo install -m 644 "$SCRIPT_DIR/cpu-governor.path" /etc/systemd/system/kickstart-cpu-governor.path
 
     sudo mkdir -p /etc/systemd/user.conf.d
     if [[ -f /etc/systemd/user.conf.d/10-rtprio.conf ]]; then
         backup_file /etc/systemd/user.conf.d/10-rtprio.conf
         sudo rm -f /etc/systemd/user.conf.d/10-rtprio.conf
     fi
-    sudo cp "$SCRIPT_DIR/10-kickstart-rtprio.conf" /etc/systemd/user.conf.d/10-kickstart-rtprio.conf
+    # Drop the RTPRIO-era file: earlier kickstarts shipped DefaultLimitRTPRIO=95 here, which
+    # never applied and was never needed. Leaving it would keep the dead setting on the host.
+    sudo rm -f /etc/systemd/user.conf.d/10-kickstart-rtprio.conf
+    sudo install -m 644 "$SCRIPT_DIR/10-kickstart-rttime.conf" /etc/systemd/user.conf.d/10-kickstart-rttime.conf
 
     if [[ -f /etc/systemd/system/cpu-freq-cap.service ]]; then
         sudo systemctl disable --now cpu-freq-cap.service 2>/dev/null || true
@@ -259,8 +268,14 @@ if want "cpufreq"; then
     sudo systemctl daemon-reload
     sudo systemctl enable --now kickstart-cpu-governor.service 2>/dev/null || true
     sudo systemctl enable --now kickstart-cpu-governor.path 2>/dev/null || true
-    echo "  done: kickstart-cpu-governor.service + .path + user RTPRIO"
-    echo "  RTPRIO takes effect after the next login (systemd --user rereads limits at session start)."
+    echo "  done: kickstart-cpu-governor.service + .path + user RTTIME"
+    # Linger keeps user@UID.service alive across logout, so a re-login reuses the same manager
+    # and the new rlimits never land. Say which one this host actually needs.
+    if [[ "$(loginctl show-user "$(id -u)" -p Linger --value 2>/dev/null)" == "yes" ]]; then
+        echo "  RTTIME needs a REBOOT (linger is on, so user@$(id -u).service survives logout)."
+    else
+        echo "  RTTIME takes effect after the next login (systemd --user rereads limits at session start)."
+    fi
 fi
 
 echo ""
