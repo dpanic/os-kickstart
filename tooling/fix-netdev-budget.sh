@@ -243,12 +243,23 @@ discover_login() {
         return
     fi
 
-    for k in "$HOME"/.ssh/*; do
+    # One level deep as well: operators park retired-but-still-valid keys in
+    # ~/.ssh/old/, and a top-level-only scan misses them. Found the hard way -- the key
+    # for one site's middle server lives in exactly that subdirectory.
+    local found=0
+    while IFS= read -r k; do
         [ -f "$k" ] || continue
         case "$k" in *.pub|*known_hosts*|*/config*|*authorized_keys*) continue ;; esac
         grep -qs 'PRIVATE KEY' "$k" || continue
+        found=$((found + 1))
+        # Each candidate costs a probe connection, so bound the search rather than
+        # hanging for minutes on a directory full of keys. Say so when it bites.
+        if [ "$found" -gt 12 ]; then
+            log "  ${YELLOW}note: more than 12 keys under ~/.ssh; ignoring the rest -- pass --key to pin one${NC}"
+            break
+        fi
         case "$k" in *.bak*|*~) bak+=("$k") ;; *) cands+=("$k") ;; esac
-    done
+    done < <(find "$HOME/.ssh" -maxdepth 2 -type f 2>/dev/null | sort)
     keys=("" ${cands[@]+"${cands[@]}"} ${bak[@]+"${bak[@]}"})
     # "" keeps whatever ssh_config says; `user` is the cloud-init CIUSER these sites
     # deploy with; root covers a hypervisor probing itself.
